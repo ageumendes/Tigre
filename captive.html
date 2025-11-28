@@ -77,13 +77,19 @@
     const statusEl = document.getElementById("status");
     const videoEl = document.getElementById("media");
     const releaseBtn = document.getElementById("release");
+    // Alvos de conectividade conhecidos (iOS e Android) e fallback.
+    const CONNECTIVITY_TARGETS = [
+      "http://captive.apple.com/hotspot-detect.html", // iOS
+      "http://clients3.google.com/generate_204", // Android / Chrome OS
+      "http://neverssl.com/", // fallback simples
+    ];
     const params = new URLSearchParams(window.location.search);
     const redirTarget =
       params.get("redir") ||
       params.get("success_url") ||
       params.get("continue") ||
       params.get("url") ||
-      "http://neverssl.com/";
+      CONNECTIVITY_TARGETS[0];
 
     const setStatus = (msg, isError = false) => {
       if (!statusEl) return;
