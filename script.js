@@ -15,7 +15,7 @@ const viewerOverlay = document.getElementById("viewer-overlay");
 const viewerSlot = document.getElementById("viewer-slot");
 const closeViewerButton = document.getElementById("close-viewer");
 
-const ALLOWED_UPLOAD_MIMES = ["video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/x-matroska", "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"];
+const ALLOWED_UPLOAD_MIMES = ["video/mp4"];
 let currentLiveMedia = null;
 let currentUpload = null;
 let uploadUrl = null;
@@ -146,10 +146,10 @@ const handleUploadChange = (event) => {
     return;
   }
 
-  const allowed = ALLOWED_UPLOAD_MIMES.includes(file.type) || file.type.startsWith("video/");
+  const allowed = ALLOWED_UPLOAD_MIMES.includes(file.type);
   if (!allowed) {
     resetUpload();
-    setUploadMessage("Formato não suportado. Use mp4 ou jpg/png/webp/gif/svg.", true);
+    setUploadMessage("Apenas MP4 é aceito.", true);
     return;
   }
 

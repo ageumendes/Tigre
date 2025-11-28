@@ -10,19 +10,10 @@ const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
 
-const ALLOWED_EXT = [".mp4", ".webm", ".mov", ".ogg", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"];
+// Restrito para MP4 (H.264/AAC) para compatibilidade com splash.
+const ALLOWED_EXT = [".mp4"];
 const MIME_BY_EXT = {
   ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mov": "video/quicktime",
-  ".ogg": "video/ogg",
-  ".mkv": "video/x-matroska",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
 };
 
 fs.mkdirSync(mediaDir, { recursive: true });
@@ -30,10 +21,7 @@ fs.mkdirSync(mediaDir, { recursive: true });
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, mediaDir),
   filename: (_req, file, cb) => {
-    const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const fallback = file.mimetype.startsWith("video/") ? ".mp4" : ".jpg";
-    const finalExt = ALLOWED_EXT.includes(ext) ? ext : fallback;
-    cb(null, `latest${finalExt}`);
+    cb(null, "latest.mp4");
   },
 });
 
@@ -42,12 +30,9 @@ const upload = multer({
   limits: { fileSize: (parseInt(process.env.MAX_UPLOAD_MB || "200", 10) || 200) * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const allowed = ALLOWED_EXT.includes(ext) || Object.values(MIME_BY_EXT).includes(file.mimetype);
-    if (!allowed) {
-      cb(new Error("Formato não permitido. Use vídeo mp4/webm/mov/ogg/mkv ou imagem jpg/png/webp/gif/svg."));
-    } else {
-      cb(null, true);
-    }
+    const isMp4 = ALLOWED_EXT.includes(ext) || file.mimetype === "video/mp4";
+    if (!isMp4) return cb(new Error("Apenas MP4 (H.264/AAC) é aceito."));
+    cb(null, true);
   },
 });
 

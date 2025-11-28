@@ -1,14 +1,14 @@
 # Mídia única com link fixo (frontend + backend)
 
-Fluxo simples para ter uma única mídia (vídeo ou imagem) sempre atualizada e servida no mesmo link. O frontend é estático e o backend Node/Express recebe uploads e expõe a mídia em `/media/latest.*`.
+Fluxo simples para ter uma única mídia (vídeo MP4) sempre atualizada e servida no mesmo link. O frontend é estático e o backend Node/Express recebe uploads e expõe a mídia em `/media/latest.mp4`.
 
 ## Como funciona
-- Backend guarda **apenas um arquivo** chamado `latest.<ext>` na pasta `media/`.
+- Backend guarda **apenas um arquivo** chamado `latest.mp4` na pasta `media/`.
 - API:
-  - `POST /api/upload` — recebe `file` (multipart), valida formato e sobrescreve o anterior.
+  - `POST /api/upload` — recebe `file` (multipart), valida (somente MP4) e sobrescreve o anterior.
   - `GET /api/info` — retorna metadados do arquivo atual.
-  - `GET /media/latest` ou `/media/latest.<ext>` — serve a mídia atual com cabeçalho `Cache-Control: no-cache`.
-- Frontend consulta `/api/info`, exibe a mídia atual e permite enviar um novo arquivo (mp4/webm/mov/ogg/mkv ou jpg/jpeg/png/webp/gif/svg).
+  - `GET /media/latest` ou `/media/latest.mp4` — serve a mídia atual com cabeçalho `Cache-Control: no-cache`.
+- Frontend consulta `/api/info`, exibe a mídia atual e permite enviar um novo arquivo (somente MP4 para compatibilidade com splash).
 - Página dedicada `viewer.html`: abre a mídia atual em tela cheia com botões de baixar e compartilhar (abre em nova guia a partir do botão na home).
 
 ## Rodando localmente (backend + front)
@@ -18,7 +18,7 @@ npm run dev         # ou npm start
 # abre http://localhost:3000
 ```
 - O backend serve o `index.html` e a pasta `media/` no mesmo host/porta.
-- Uploads feitos pelo formulário já salvam como `latest.<ext>` no backend.
+- Uploads feitos pelo formulário já salvam como `latest.mp4` no backend.
 
 ## Hospedando
 1) **Backend**: suba em um serviço que permita Node (Render, Railway, Fly.io, Heroku, VPS etc.).  
@@ -39,8 +39,8 @@ npm run dev         # ou npm start
 
 ## Fluxo do usuário final
 1) Abrir o link fixo do site.  
-2) Clicar em “Subir nova mídia”, escolher o arquivo e “Enviar e publicar”.  
-3) O backend salva como `latest.<ext>`; qualquer pessoa que abrir o link verá a versão mais recente.  
+2) Clicar em “Subir nova mídia”, escolher o arquivo (MP4) e “Enviar e publicar”.  
+3) O backend salva como `latest.mp4`; qualquer pessoa que abrir o link verá a versão mais recente.  
 4) Botões “Recarregar mídia” e “Ver em tela cheia” ajudam a validar e evitar cache.
 
 ## Variáveis de ambiente úteis
@@ -49,12 +49,11 @@ npm run dev         # ou npm start
 - `CORS_ORIGIN`: lista de origens permitidas (separadas por vírgula). Padrão: `*`.
 
 ## Formatos aceitos
-- Vídeo: mp4, webm, mov, ogg, mkv  
-- Imagem: jpg, jpeg, png, webp, gif, svg
+- Vídeo: mp4 (H.264/AAC) — obrigatório
 
 ## Estrutura
 - `index.html`, `styles.css`, `script.js`, `config.js` — frontend estático.
 - `viewer.html`, `viewer.js` — página de visualização em tela cheia.
 - `server.js` — backend Express.
-- `media/` — pasta onde o backend salva `latest.<ext>`.
+- `media/` — pasta onde o backend salva `latest.mp4`.
 - `package.json` — dependências e scripts.
