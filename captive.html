@@ -46,9 +46,27 @@
       font-size: 13px;
       color: #4d3410;
     }
+    .info {
+      font-size: 13px;
+      color: #4d3410;
+      text-align: left;
+      line-height: 1.5;
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .info code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      background: rgba(0,0,0,0.04);
+      padding: 2px 4px;
+      border-radius: 6px;
+      word-break: break-all;
+    }
     .actions {
-      display: flex;
-      justify-content: center;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr;
     }
     .btn {
       border: 1px solid rgba(0, 0, 0, 0.12);
@@ -69,8 +87,10 @@
       <video id="media" playsinline autoplay muted controls preload="auto"></video>
     </div>
     <div id="status" class="status">Carregando mídia...</div>
+    <div id="info" class="info"></div>
     <div class="actions">
-      <button id="release" class="btn">Liberar navegação</button>
+      <button id="release" class="btn">Liberar navegação (endpoint padrão)</button>
+      <button id="release-alt" class="btn">Liberar navegação (endpoint alternativo)</button>
     </div>
   </div>
 
@@ -78,6 +98,8 @@
     const statusEl = document.getElementById("status");
     const videoEl = document.getElementById("media");
     const releaseBtn = document.getElementById("release");
+    const releaseAltBtn = document.getElementById("release-alt");
+    const infoEl = document.getElementById("info");
     // Alvos de conectividade conhecidos (iOS e Android) e fallback.
     const CONNECTIVITY_TARGETS = [
       "http://captive.apple.com/hotspot-detect.html", // iOS
@@ -87,6 +109,8 @@
     const params = new URLSearchParams(window.location.search);
     const clientMac = params.get("clientMac") || "";
     const apIp = params.get("apIp") || "10.0.0.1";
+    const clientIp = params.get("clientIp") || "";
+    const ssid = params.get("ssid") || "";
     const redirTarget =
       params.get("redir") ||
       params.get("success_url") ||
@@ -98,6 +122,16 @@
       if (!statusEl) return;
       statusEl.textContent = msg;
       statusEl.style.color = isError ? "#b11212" : "#4d3410";
+    };
+
+    const renderInfo = () => {
+      if (!infoEl) return;
+      infoEl.innerHTML = `
+        <div><strong>SSID:</strong> <code>${ssid || "-"}</code></div>
+        <div><strong>MAC do cliente:</strong> <code>${clientMac || "-"}</code></div>
+        <div><strong>IP do cliente:</strong> <code>${clientIp || "-"}</code></div>
+        <div><strong>IP do AP:</strong> <code>${apIp}</code></div>
+      `;
     };
 
     const load = async () => {
@@ -114,25 +148,33 @@
     };
 
     const releaseAccess = () => {
-      // Intelbras espera um hit em HTTP no AP com o MAC para liberar.
-      // Navigação para HTTP é permitida mesmo a partir de HTTPS (mixed content em fetch seria bloqueado).
       const authUrl = `http://${apIp}/cgi-bin/captiveportal?auth=1&clientMac=${encodeURIComponent(
         clientMac
       )}&redir=${encodeURIComponent(redirTarget)}`;
-      setStatus("Liberando acesso...");
+      setStatus("Liberando acesso (padrão)...");
       window.location.href = authUrl;
     };
 
-    if (releaseBtn) {
-      releaseBtn.addEventListener("click", releaseAccess);
-    }
+    const releaseAccessAlt = () => {
+      const authUrl = `http://${apIp}/cgi-bin/luci/;stok=/admin/captiveportal/auth?clientMac=${encodeURIComponent(
+        clientMac
+      )}&redir=${encodeURIComponent(redirTarget)}`;
+      setStatus("Liberando acesso (alternativo)...");
+      window.location.href = authUrl;
+    };
+
+    if (releaseBtn) releaseBtn.addEventListener("click", releaseAccess);
+    if (releaseAltBtn) releaseAltBtn.addEventListener("click", releaseAccessAlt);
 
     videoEl.addEventListener("ended", () => {
       setStatus("Concluído. Liberando navegação...");
       setTimeout(releaseAccess, 500);
     });
 
-    document.addEventListener("DOMContentLoaded", load);
+    document.addEventListener("DOMContentLoaded", () => {
+      renderInfo();
+      load();
+    });
   </script>
 </body>
 </html>
