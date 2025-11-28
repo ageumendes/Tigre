@@ -1,10 +1,12 @@
 <!DOCTYPE html>
+<!-- Portal cativo simples para Intelbras (Zeus OS): sem autenticação CGI/RADIUS.
+     Apenas redireciona para a URL de destino (redir) ou, se ausente, para https://www.google.com
+     após o vídeo ou ao clicar no botão. -->
 <html lang="pt-BR">
 <head>
-  
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Promo | Captive</title>
+  <title>Portal Cativo</title>
   <style>
     :root {
       color-scheme: light;
@@ -24,7 +26,7 @@
       padding: 16px;
     }
     .wrap {
-      width: min(420px, 100%);
+      width: min(460px, 100%);
       display: grid;
       gap: 12px;
       text-align: center;
@@ -36,7 +38,7 @@
       box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
       border: 1px solid rgba(0, 0, 0, 0.05);
     }
-    video, img {
+    video {
       width: 100%;
       border-radius: 10px;
       background: #160a00;
@@ -86,38 +88,32 @@
     <div class="card">
       <video id="media" playsinline autoplay muted controls preload="auto"></video>
     </div>
-    <div id="status" class="status">Carregando mídia...</div>
+    <div id="status" class="status">Carregando vídeo...</div>
     <div id="info" class="info"></div>
     <div class="actions">
-      <button id="release" class="btn">Liberar navegação (endpoint padrão)</button>
-      <button id="release-alt" class="btn">Liberar navegação (endpoint alternativo)</button>
+      <button id="release" class="btn">Conectar ao Wi-Fi</button>
     </div>
   </div>
 
   <script>
-    const statusEl = document.getElementById("status");
-    const videoEl = document.getElementById("media");
-    const releaseBtn = document.getElementById("release");
-    const releaseAltBtn = document.getElementById("release-alt");
-    const infoEl = document.getElementById("info");
-    // Redirecionamento pós-liberação (pode vir via query do AP).
-    const CONNECTIVITY_TARGETS = [
-      "https://www.google.com",
-      "http://captive.apple.com/hotspot-detect.html", // iOS
-      "http://clients3.google.com/generate_204", // Android / Chrome OS
-      "http://neverssl.com/", // fallback simples
-    ];
+    // Captura parâmetros enviados pelo AP (Intelbras).
     const params = new URLSearchParams(window.location.search);
     const clientMac = params.get("clientMac") || "";
-    const apIp = params.get("apIp") || "10.0.0.1";
     const clientIp = params.get("clientIp") || "";
+    const apMac = params.get("apMac") || "";
+    const apIp = params.get("apIp") || "10.0.0.1";
     const ssid = params.get("ssid") || "";
     const redirTarget =
       params.get("redir") ||
       params.get("success_url") ||
       params.get("continue") ||
       params.get("url") ||
-      CONNECTIVITY_TARGETS[0];
+      "https://www.google.com";
+
+    const statusEl = document.getElementById("status");
+    const videoEl = document.getElementById("media");
+    const releaseBtn = document.getElementById("release");
+    const infoEl = document.getElementById("info");
 
     const setStatus = (msg, isError = false) => {
       if (!statusEl) return;
@@ -131,51 +127,40 @@
         <div><strong>SSID:</strong> <code>${ssid || "-"}</code></div>
         <div><strong>MAC do cliente:</strong> <code>${clientMac || "-"}</code></div>
         <div><strong>IP do cliente:</strong> <code>${clientIp || "-"}</code></div>
+        <div><strong>MAC do AP:</strong> <code>${apMac || "-"}</code></div>
         <div><strong>IP do AP:</strong> <code>${apIp}</code></div>
+        <div><strong>Redirecionamento:</strong> <code>${redirTarget}</code></div>
       `;
-      console.log("clientMac:", clientMac, "clientIp:", clientIp, "apMac:", params.get("apMac"), "apIp:", apIp, "redir:", redirTarget);
+      console.log("clientMac:", clientMac, "clientIp:", clientIp, "apMac:", apMac, "apIp:", apIp, "redir:", redirTarget);
     };
 
-    const load = async () => {
-      setStatus("Carregando mídia...");
+    const loadVideo = async () => {
+      setStatus("Carregando vídeo...");
       const url = `/media/latest.mp4?t=${Date.now()}`;
       try {
         const head = await fetch(url, { method: "HEAD", cache: "no-store" });
         if (!head.ok) throw new Error("Mídia não encontrada");
         videoEl.src = url;
-        setStatus("Pronto. Reproduza o vídeo para liberar.");
+        setStatus("Pronto. Reproduza o vídeo ou clique para liberar.");
       } catch (err) {
         setStatus("Nenhuma mídia disponível no momento.", true);
       }
     };
 
     const releaseAccess = () => {
-      const authUrl = `http://${apIp}/cgi-bin/captiveportal?auth=1&clientMac=${encodeURIComponent(
-        clientMac
-      )}&redir=${encodeURIComponent(redirTarget)}`;
-      setStatus("Liberando acesso (padrão)...");
-      window.location.href = authUrl;
+      setStatus("Conectando...");
+      window.location.href = redirTarget || "https://www.google.com";
     };
-
-    const releaseAccessAlt = () => {
-      const authUrl = `http://${apIp}/cgi-bin/luci/;stok=/admin/captiveportal/auth?clientMac=${encodeURIComponent(
-        clientMac
-      )}&redir=${encodeURIComponent(redirTarget)}`;
-      setStatus("Liberando acesso (alternativo)...");
-      window.location.href = authUrl;
-    };
-
-    if (releaseBtn) releaseBtn.addEventListener("click", releaseAccess);
-    if (releaseAltBtn) releaseAltBtn.addEventListener("click", releaseAccessAlt);
-
-    videoEl.addEventListener("ended", () => {
-      setStatus("Concluído. Liberando navegação...");
-      setTimeout(releaseAccess, 500);
-    });
 
     document.addEventListener("DOMContentLoaded", () => {
       renderInfo();
-      load();
+      loadVideo();
+    });
+
+    if (releaseBtn) releaseBtn.addEventListener("click", releaseAccess);
+    videoEl.addEventListener("ended", () => {
+      setStatus("Conectando...");
+      window.location.href = redirTarget || "https://www.google.com";
     });
   </script>
 </body>
