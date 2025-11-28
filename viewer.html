@@ -10,22 +10,15 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="viewer-page">
-  <header class="viewer-header">
-    <div>
-      <p class="eyebrow">Link fixo</p>
-      <h1>Visualização em tela cheia</h1>
-      <p class="viewer-subtitle">Abra, compartilhe ou baixe sempre a mídia mais recente publicada.</p>
-    </div>
-    <div class="actions">
-      <a href="index.html" class="ghost-button">Voltar</a>
+  
+  <main class="viewer-stage">
+    <div id="viewer-area" class="viewer-area"></div>
+    <div id="viewer-status" class="status">Carregando mídia...</div>
+    <div class="viewer-actions">
+      
       <button id="share-button" class="ghost-button">Compartilhar</button>
       <a id="download-button" class="ghost-button primary" download>Baixar</a>
     </div>
-  </header>
-
-  <main class="viewer-stage">
-    <div id="viewer-status" class="status">Carregando mídia...</div>
-    <div id="viewer-area" class="viewer-area"></div>
   </main>
 
   <script src="config.js"></script>

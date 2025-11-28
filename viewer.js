@@ -8,6 +8,15 @@ const setStatus = (message, isError = false) => {
   if (!viewerStatus) return;
   viewerStatus.textContent = message;
   viewerStatus.classList.toggle("error", isError);
+  if (message === "Pronto") {
+    viewerStatus.style.visibility = "hidden";
+    viewerStatus.style.height = "0";
+    viewerStatus.style.margin = "0";
+  } else {
+    viewerStatus.style.visibility = "visible";
+    viewerStatus.style.height = "";
+    viewerStatus.style.margin = "12px 0 0";
+  }
 };
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
@@ -92,7 +101,7 @@ const init = async () => {
   const kind = data.mime && data.mime.startsWith("video/") ? "video" : "image";
   const mediaUrl = `${buildUrl(data.path)}?t=${Date.now()}`;
   renderMedia(kind, mediaUrl);
-  setStatus(`Mostrando ${data.path.replace("/media/", "")}`);
+  setStatus("Pronto");
 
   if (downloadButton) {
     downloadButton.href = mediaUrl;
