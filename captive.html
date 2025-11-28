@@ -84,6 +84,8 @@
       "http://neverssl.com/", // fallback simples
     ];
     const params = new URLSearchParams(window.location.search);
+    const clientMac = params.get("clientMac") || "";
+    const apIp = params.get("apIp") || "10.0.0.1";
     const redirTarget =
       params.get("redir") ||
       params.get("success_url") ||
@@ -111,8 +113,13 @@
     };
 
     const releaseAccess = () => {
+      // Intelbras espera um hit em HTTP no AP com o MAC para liberar.
+      // Navigação para HTTP é permitida mesmo a partir de HTTPS (mixed content em fetch seria bloqueado).
+      const authUrl = `http://${apIp}/cgi-bin/captiveportal?auth=1&clientMac=${encodeURIComponent(
+        clientMac
+      )}&redir=${encodeURIComponent(redirTarget)}`;
       setStatus("Liberando acesso...");
-      window.location.href = redirTarget;
+      window.location.href = authUrl;
     };
 
     if (releaseBtn) {
