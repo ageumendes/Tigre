@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Promo | Captive</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7a41c;
+      --text: #1c1200;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(120% 120% at 30% 20%, #ffd24a 0%, #f7a41c 45%, #f47f18 100%);
+      color: var(--text);
+      font-family: "Manrope", "Helvetica Neue", Arial, sans-serif;
+      padding: 16px;
+    }
+    .wrap {
+      width: min(420px, 100%);
+      display: grid;
+      gap: 12px;
+      text-align: center;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.86);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+    video, img {
+      width: 100%;
+      border-radius: 10px;
+      background: #160a00;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .status {
+      font-size: 13px;
+      color: #4d3410;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <video id="media" playsinline autoplay muted controls preload="auto"></video>
+    </div>
+    <div id="status" class="status">Carregando mídia...</div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const videoEl = document.getElementById("media");
+    const setStatus = (msg, isError = false) => {
+      if (!statusEl) return;
+      statusEl.textContent = msg;
+      statusEl.style.color = isError ? "#b11212" : "#4d3410";
+    };
+
+    const load = async () => {
+      setStatus("Carregando mídia...");
+      const url = `/media/latest.mp4?t=${Date.now()}`;
+      try {
+        const head = await fetch(url, { method: "HEAD", cache: "no-store" });
+        if (!head.ok) throw new Error("Mídia não encontrada");
+        videoEl.src = url;
+        setStatus("Pronto. Reproduza o vídeo para liberar.");
+      } catch (err) {
+        setStatus("Nenhuma mídia disponível no momento.", true);
+      }
+    };
+
+    document.addEventListener("DOMContentLoaded", load);
+  </script>
+</body>
+</html>
