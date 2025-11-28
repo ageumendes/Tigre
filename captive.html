@@ -100,8 +100,9 @@
     const releaseBtn = document.getElementById("release");
     const releaseAltBtn = document.getElementById("release-alt");
     const infoEl = document.getElementById("info");
-    // Alvos de conectividade conhecidos (iOS e Android) e fallback.
+    // Redirecionamento pós-liberação (pode vir via query do AP).
     const CONNECTIVITY_TARGETS = [
+      "https://www.google.com",
       "http://captive.apple.com/hotspot-detect.html", // iOS
       "http://clients3.google.com/generate_204", // Android / Chrome OS
       "http://neverssl.com/", // fallback simples
@@ -132,6 +133,7 @@
         <div><strong>IP do cliente:</strong> <code>${clientIp || "-"}</code></div>
         <div><strong>IP do AP:</strong> <code>${apIp}</code></div>
       `;
+      console.log("clientMac:", clientMac, "clientIp:", clientIp, "apMac:", params.get("apMac"), "apIp:", apIp, "redir:", redirTarget);
     };
 
     const load = async () => {
