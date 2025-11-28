@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mídia única | GitHub Pages</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="pill">Pronto para o GitHub Pages</div>
+      <h1>Mídia fixa, sempre atualizada</h1>
+      <p>Troque o arquivo na pasta <code>media/</code>, mantenha o nome e publique. Agora você também pode testar e enviar um novo vídeo/imagem pelo navegador e ver em tela cheia.</p>
+    </header>
+
+    <main class="grid">
+      <section class="card media-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Visualização</p>
+            <h2>Arquivo atual</h2>
+          </div>
+          <div class="actions">
+            <button id="view-live-button" class="ghost-button" disabled>Ver em tela cheia</button>
+            <button id="refresh-button" class="ghost-button">Recarregar mídia</button>
+            <a class="ghost-button primary" href="viewer.html" target="_blank" rel="noopener">Abrir página de visualização</a>
+          </div>
+        </div>
+
+        <div id="media-area" class="media-area">
+          <div class="placeholder">
+            <p>Adicione um arquivo na pasta <code>media/</code> com nome fixo (ex.: <code>latest.mp4</code> ou <code>latest.jpg</code>).</p>
+            <small>O botão acima força a atualização sem cache.</small>
+          </div>
+        </div>
+        <div id="status" class="status">Procurando arquivo...</div>
+      </section>
+
+      <section class="card upload-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Teste antes de publicar</p>
+            <h2>Subir nova mídia</h2>
+          </div>
+          <span class="badge">local</span>
+        </div>
+
+        <div class="upload-area">
+          <label for="upload-input" class="upload-label">
+            <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,video/webm,video/ogg,video/quicktime,video/x-matroska,image/jpeg,image/png,image/webp,image/gif,image/svg+xml">
+            <div class="upload-drop">
+              <p class="upload-title">Arraste um arquivo ou clique para procurar</p>
+              <p class="upload-subtitle">mp4 ou jpg/png/webp/gif. Vamos enviar para o backend configurado.</p>
+              <button id="choose-upload-button" type="button" class="ghost-button small">Escolher arquivo</button>
+            </div>
+          </label>
+          <div id="upload-status" class="status">Nenhum arquivo selecionado.</div>
+        </div>
+
+        <div id="upload-preview" class="media-area compact">
+          <div class="placeholder">
+            <p>Selecione um arquivo para pré-visualizar aqui.</p>
+            <small>Depois salve como <code>media/latest.mp4</code> ou <code>media/latest.jpg</code> e publique.</small>
+          </div>
+        </div>
+
+        <div class="upload-actions">
+          <div class="hint">
+            <p>1) Escolha o arquivo que quer publicar. 2) Clique em “Enviar e publicar” para gravar no backend com nome fixo. 3) Compartilhe o link; quem abrir verá sempre a versão mais recente.</p>
+            <p>Use “Ver em tela cheia” para conferir como ficará.</p>
+          </div>
+          <div class="actions">
+            <button id="view-upload-button" class="ghost-button" disabled>Ver em tela cheia</button>
+            <button id="publish-button" class="ghost-button primary" disabled>Enviar e publicar</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Quer outro fluxo? Ajuste o nome alvo em <code>script.js</code> e mantenha um único arquivo ativo na pasta <code>media/</code>.</p>
+    </footer>
+  </div>
+
+  <div id="viewer-overlay" class="viewer hidden">
+    <div class="viewer-backdrop"></div>
+    <div class="viewer-content">
+      <button id="close-viewer" class="close-button" aria-label="Fechar">×</button>
+      <div id="viewer-slot" class="viewer-slot"></div>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
