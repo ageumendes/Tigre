@@ -67,6 +67,32 @@
       font-size: 13px;
       color: #4d3410;
     }
+    .secondary-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin: 8px 0 4px;
+      flex-wrap: wrap;
+    }
+    .secondary-btn {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+    }
+    .secondary-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.6);
+    }
     .actions {
       display: grid;
       gap: 8px;
@@ -96,6 +122,10 @@
       <div id="media-container"></div>
     </div>
     <div id="status" class="status">Carregando vídeo...</div>
+    <div class="secondary-actions">
+      <button id="download" class="secondary-btn download-btn">Baixar</button>
+      <button id="share" class="secondary-btn share-btn">Compartilhar</button>
+    </div>
     <div class="actions">
       <button id="release" class="connect-btn">Conectar ao Wi-Fi</button>
     </div>
@@ -130,6 +160,8 @@
     const statusEl = document.getElementById("status");
     const mediaContainer = document.getElementById("media-container");
     const releaseBtn = document.getElementById("release");
+    const downloadBtn = document.getElementById("download");
+    const shareBtn = document.getElementById("share");
     const statsEndpoint = `${API_BASE}/api/stats/event`;
     const userAgent = navigator.userAgent || "";
     const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
@@ -139,6 +171,7 @@
     let mediaMode = "video";
     let carouselTimer = null;
     let carouselIndex = 0;
+    let mediaItems = [];
 
     const setStatus = (msg, isError = false) => {
       if (!statusEl) return;
@@ -273,6 +306,7 @@
         return;
       }
       mediaMode = mode;
+      mediaItems = items;
       startedLogged = false;
       completedLogged = false;
 
@@ -316,6 +350,72 @@
       } catch (error) {
         console.error(error);
         setStatus(error.message || "Nenhuma mídia disponível no momento.", true);
+      }
+    };
+
+    const downloadMedia = (url, filename) => {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "midia";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    const handleDownloadClick = () => {
+      if (!mediaItems.length) return;
+      const item =
+        mediaMode === "carousel" ? mediaItems[carouselIndex] || mediaItems[0] : mediaItems[0];
+      if (!item?.url) {
+        setStatus("Não foi possível iniciar o download.", true);
+        return;
+      }
+      const filename = (item.path || "").split("/").pop() || "midia";
+      sendEvent("download_clicked");
+      setStatus("Iniciando download da mídia…");
+      downloadMedia(item.url, filename);
+    };
+
+    const copyToClipboard = async (text) => {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        return true;
+      } catch (err) {
+        console.warn("Falhou ao copiar", err);
+        return false;
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    };
+
+    const handleShareClick = async () => {
+      try {
+        sendEvent("share_clicked");
+        const shareUrl = continueUrl || window.location.origin;
+        if (navigator.share) {
+          await navigator.share({
+            title: "Wi-Fi liberado",
+            text: "Conecte-se ao Wi-Fi e confira as promoções.",
+            url: shareUrl,
+          });
+          setStatus("Compartilhado com sucesso.");
+          return;
+        }
+        const copied = await copyToClipboard(shareUrl);
+        setStatus(copied ? "Link copiado para compartilhar." : "Não foi possível copiar o link.", !copied);
+      } catch (err) {
+        console.error("Erro ao compartilhar:", err);
+        setStatus("Não foi possível compartilhar.", true);
       }
     };
 
@@ -365,6 +465,8 @@
     });
 
     if (releaseBtn) releaseBtn.addEventListener("click", handleConnectClick);
+    if (downloadBtn) downloadBtn.addEventListener("click", handleDownloadClick);
+    if (shareBtn) shareBtn.addEventListener("click", handleShareClick);
   </script>
 </body>
 </html>

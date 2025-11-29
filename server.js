@@ -489,12 +489,14 @@ app.post("/api/stats/event", (req, res) => {
 
 app.get("/api/stats/summary", (_req, res) => {
   const events = readStats();
-  const summary = {
+const summary = {
     totalEvents: events.length,
     totalVideoStarted: 0,
     totalVideoCompleted: 0,
     totalConnectClicked: 0,
     totalAuthRedirect: 0,
+    totalDownloadClicked: 0,
+    totalShareClicked: 0,
     bySsid: {},
     byDay: {},
   };
@@ -518,6 +520,8 @@ app.get("/api/stats/summary", (_req, res) => {
     if (event.type === "video_completed") summary.totalVideoCompleted += 1;
     if (event.type === "connect_clicked") summary.totalConnectClicked += 1;
     if (event.type === "auth_redirect") summary.totalAuthRedirect += 1;
+    if (event.type === "download_clicked") summary.totalDownloadClicked += 1;
+    if (event.type === "share_clicked") summary.totalShareClicked += 1;
 
     const ssidKey = event.ssid || "desconhecido";
     summary.bySsid[ssidKey] = (summary.bySsid[ssidKey] || 0) + 1;
