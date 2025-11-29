@@ -21,10 +21,57 @@ const setStatus = (message, isError = false) => {
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 
-const renderMedia = (kind, url) => {
+const renderCarousel = (items) => {
   if (!viewerArea) return;
   viewerArea.innerHTML = "";
-  if (kind === "video") {
+  if (!items?.length) {
+    const empty = document.createElement("div");
+    empty.className = "placeholder";
+    empty.textContent = "Nenhuma imagem no carrossel.";
+    viewerArea.appendChild(empty);
+    return;
+  }
+
+  let index = 0;
+  const main = document.createElement("img");
+  main.alt = "Carrossel";
+  main.className = "viewer-carousel-main";
+
+  const setImage = (i) => {
+    index = (i + items.length) % items.length;
+    main.src = items[index].url || items[index].path;
+  };
+  setImage(0);
+
+  const prev = document.createElement("button");
+  prev.className = "ghost-button small";
+  prev.textContent = "Anterior";
+  prev.addEventListener("click", () => setImage(index - 1));
+
+  const next = document.createElement("button");
+  next.className = "ghost-button small";
+  next.textContent = "Próximo";
+  next.addEventListener("click", () => setImage(index + 1));
+
+  const controls = document.createElement("div");
+  controls.className = "viewer-actions";
+  controls.appendChild(prev);
+  controls.appendChild(next);
+
+  viewerArea.appendChild(main);
+  viewerArea.appendChild(controls);
+};
+
+const renderMedia = (mode, url, items) => {
+  if (!viewerArea) return;
+  viewerArea.innerHTML = "";
+
+  if (mode === "carousel") {
+    renderCarousel(items);
+    return;
+  }
+
+  if (mode === "video") {
     const video = document.createElement("video");
     video.src = url;
     video.controls = true;
@@ -44,7 +91,15 @@ const renderMedia = (kind, url) => {
 const fetchLatest = async () => {
   const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
   if (!response.ok) return null;
-  return response.json();
+  const data = await response.json();
+  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+  const items = (data.items || []).map((item) => ({
+    ...item,
+    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+  }));
+  const primary = items[0] || data;
+  const url = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : null;
+  return { ...data, mode, items, primary, url };
 };
 
 const copyToClipboard = async (text) => {
@@ -98,14 +153,15 @@ const init = async () => {
     return;
   }
 
-  const kind = data.mime && data.mime.startsWith("video/") ? "video" : "image";
-  const mediaUrl = `${buildUrl(data.path)}?t=${Date.now()}`;
-  renderMedia(kind, mediaUrl);
+  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+  const mediaUrl = data.url || (data.path ? `${buildUrl(data.path)}?t=${Date.now()}` : "");
+  renderMedia(mode, mediaUrl, data.items);
   setStatus("Pronto");
 
+  const downloadName = (data.path || data.primary?.path || "").split("/").pop() || "latest";
   if (downloadButton) {
     downloadButton.href = mediaUrl;
-    downloadButton.download = data.path.split("/").pop() || "latest";
+    downloadButton.download = downloadName;
   }
 
   const shareUrl = window.location.origin + window.location.pathname;

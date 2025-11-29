@@ -27,8 +27,7 @@
           <div class="actions">
             <button id="view-live-button" class="ghost-button" disabled>Ver em tela cheia</button>
             <button id="refresh-button" class="ghost-button">Recarregar mídia</button>
-            <a class="ghost-button primary" href="viewer.html" target="_blank" rel="noopener">Abrir página de visualização</a>
-            <a class="ghost-button" href="captive.html" target="_blank" rel="noopener">Abrir página de navegação</a>
+            <a class="ghost-button primary" href="captive.html" target="_blank" rel="noopener">Abrir página de visualização</a>
           </div>
         </div>
 
@@ -51,11 +50,21 @@
         </div>
 
         <div class="upload-area">
+          <div class="promo-grid">
+            <label>
+              Tipo de mídia
+              <select id="media-type-select" class="ghost-select">
+                <option value="video">Vídeo único</option>
+                <option value="image">Imagem única</option>
+                <option value="carousel">Carrossel de imagens</option>
+              </select>
+            </label>
+          </div>
           <label for="upload-input" class="upload-label">
-            <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4">
+            <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*">
             <div class="upload-drop">
               <p class="upload-title">Arraste um arquivo ou clique para procurar</p>
-              <p class="upload-subtitle">Apenas MP4 (H.264/AAC). Vamos enviar para o backend configurado.</p>
+              <p class="upload-subtitle">Aceita vídeo MP4 ou imagens (JPG, PNG, WebP). Para carrossel, selecione múltiplas imagens.</p>
               <button id="choose-upload-button" type="button" class="ghost-button small">Escolher arquivo</button>
             </div>
           </label>
@@ -71,9 +80,9 @@
 
         <div class="upload-actions">
           <div class="hint">
-            <p>1) Escolha o arquivo que quer publicar. 2) Clique em “Enviar e publicar” para gravar no backend com nome fixo. 3) Compartilhe o link; quem abrir verá sempre a versão mais recente.</p>
+            <p>1) Escolha o arquivo que quer publicar (vídeo ou imagem, ou várias imagens para carrossel). 2) Clique em “Enviar e publicar” para gravar no backend. 3) Compartilhe o link; quem abrir verá sempre a versão mais recente.</p>
             <p>Use “Ver em tela cheia” para conferir como ficará.</p>
-            <p>Para uso no splash do roteador, o link direto é <code>/media/latest.mp4</code>.</p>
+            <p>Para o splash do roteador, a página cativa consulta <code>/api/info</code> e usa <code>/media/...</code> conforme o modo selecionado.</p>
           </div>
           <div class="actions">
             <button id="view-upload-button" class="ghost-button" disabled>Ver em tela cheia</button>
@@ -81,10 +90,73 @@
           </div>
         </div>
       </section>
+
+      <section class="card promo-admin-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Promoções</p>
+            <h2>CMS de promoções</h2>
+          </div>
+          <div class="actions">
+            <button id="reload-promos-admin" class="ghost-button">Recarregar</button>
+            <a class="ghost-button primary" href="promotions.html" target="_blank" rel="noopener">Ver página pública</a>
+          </div>
+        </div>
+
+        <div id="promo-admin-status" class="status">Carregando promoções...</div>
+
+        <div class="promo-list-admin" id="promo-list-admin">
+          <div class="placeholder">
+            <p>Nenhuma promoção cadastrada ainda.</p>
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid rgba(0,0,0,0.08); margin: 16px 0;">
+
+        <form id="promo-form" class="promo-form">
+          <div class="promo-grid">
+            <label>
+              Título *
+              <input id="promo-title" name="title" type="text" placeholder="Ex.: Super oferta do dia" required>
+            </label>
+            <label>
+              Preço
+              <input id="promo-price" name="price" type="text" placeholder="Ex.: R$ 9,99">
+            </label>
+            <label>
+              Badge
+              <input id="promo-badge" name="badge" type="text" placeholder="Ex.: Hoje, Novo, -20%">
+            </label>
+            <label>
+              Válido até
+              <input id="promo-valid" name="validUntil" type="date">
+            </label>
+            <label>
+              Imagem (URL)
+              <input id="promo-image" name="imageUrl" type="url" placeholder="https://...">
+            </label>
+            <label>
+              Ativa?
+              <input id="promo-active" name="active" type="checkbox" checked>
+            </label>
+          </div>
+          <label>
+            Descrição
+            <textarea id="promo-description" name="description" placeholder="Texto curto da promoção"></textarea>
+          </label>
+          <div class="promo-actions">
+            <button type="submit" class="ghost-button primary" id="promo-save-button">Salvar promoção</button>
+            <button type="button" class="ghost-button" id="promo-cancel-edit" aria-disabled="true">Cancelar edição</button>
+          </div>
+        </form>
+      </section>
     </main>
 
     <footer class="footer">
       <p>Quer outro fluxo? Ajuste o nome alvo em <code>script.js</code> e mantenha um único arquivo ativo na pasta <code>media/</code>.</p>
+      <div class="actions">
+        <a class="ghost-button primary" href="dashboard.html" target="_blank" rel="noopener">Ver Dashboard</a>
+      </div>
     </footer>
   </div>
 

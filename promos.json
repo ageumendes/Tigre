@@ -1,0 +1,26 @@
+[
+  {
+    "id": "1764431035577-d4a12f",
+    "title": "Teste",
+    "description": "boa promoção",
+    "price": "5,99",
+    "badge": "20%",
+    "validUntil": "2025-11-30",
+    "imageUrl": "http://semimg",
+    "active": true,
+    "updatedAt": 1764431060467,
+    "createdAt": 1764431035577
+  },
+  {
+    "id": "1764431302072-ae6b58",
+    "title": "arroz 5kg primavera",
+    "description": "so hoje",
+    "price": "15,99",
+    "badge": "15",
+    "validUntil": "2025-11-30",
+    "imageUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5OjcBCgoKDQwNGg8PGjclHyU3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3N//AABEIAJQAlQMBEQACEQEDEQH/xAAcAAABBAMBAAAAAAAAAAAAAAAAAgMEBQEGBwj/xABDEAACAQMDAQQGBgcFCQEAAAABAgMABBEFEiExBkFRYRMUIjJxgQdCkaGx0RUjM1KSwfAkYmNy4RdDU3SCg6Kywhb/xAAbAQEAAwEBAQEAAAAAAAAAAAAAAQIDBAUGB//EADcRAAIBAgQCBwYGAgMBAAAAAAABAgMRBBIhMQVRBhRBYZGh8BMiMnGBsRVCUsHR4SMzcqLxYv/aAAwDAQACE",
+    "active": true,
+    "updatedAt": 1764431422768,
+    "createdAt": 1764431302072
+  }
+]
