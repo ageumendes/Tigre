@@ -3,6 +3,8 @@ const API_BASE = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
 const metricVideoStarted = document.getElementById("metric-video-started");
 const metricConnectClicked = document.getElementById("metric-connect-clicked");
 const metricAuthRedirect = document.getElementById("metric-auth-redirect");
+const metricDownloadClicked = document.getElementById("metric-download-clicked");
+const metricShareClicked = document.getElementById("metric-share-clicked");
 const summaryStatus = document.getElementById("summary-status");
 const chartStatus = document.getElementById("chart-status");
 const recentStatus = document.getElementById("recent-status");
@@ -99,6 +101,8 @@ const loadSummary = async () => {
   if (metricVideoStarted) metricVideoStarted.textContent = formatNumber(data.totalVideoStarted);
   if (metricConnectClicked) metricConnectClicked.textContent = formatNumber(data.totalConnectClicked);
   if (metricAuthRedirect) metricAuthRedirect.textContent = formatNumber(data.totalAuthRedirect);
+  if (metricDownloadClicked) metricDownloadClicked.textContent = formatNumber(data.totalDownloadClicked);
+  if (metricShareClicked) metricShareClicked.textContent = formatNumber(data.totalShareClicked);
 
   const byDay = data.byDay || {};
   const labels = Object.keys(byDay).sort();
