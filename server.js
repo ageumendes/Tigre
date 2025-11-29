@@ -20,6 +20,8 @@ const SUPPORTED_EVENT_TYPES = new Set([
   "video_completed",
   "connect_clicked",
   "auth_redirect",
+  "download_clicked",
+  "share_clicked",
 ]);
 
 // Extensões permitidas (vídeo e imagens) para o portal cativo.
