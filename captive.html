@@ -67,38 +67,26 @@
       font-size: 13px;
       color: #4d3410;
     }
-    .info {
-      font-size: 13px;
-      color: #4d3410;
-      text-align: left;
-      line-height: 1.5;
-      background: rgba(255, 255, 255, 0.86);
-      border: 1px solid rgba(0, 0, 0, 0.08);
-      border-radius: 10px;
-      padding: 10px 12px;
-    }
-    .info code {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      background: rgba(0,0,0,0.04);
-      padding: 2px 4px;
-      border-radius: 6px;
-      word-break: break-all;
-    }
     .actions {
       display: grid;
       gap: 8px;
       grid-template-columns: 1fr;
     }
-    .btn {
-      border: 1px solid rgba(0, 0, 0, 0.12);
-      background: linear-gradient(135deg, #f9c600 0%, #f47f18 50%, #d62828 100%);
-      color: #fffdf5;
-      padding: 10px 14px;
-      border-radius: 10px;
+    .connect-btn {
+      background: linear-gradient(135deg, #2ecc71, #27ae60);
+      color: #fff;
       font-weight: 700;
+      padding: 15px 28px;
+      border-radius: 14px;
+      border: none;
       cursor: pointer;
-      text-decoration: none;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      font-size: 1.2rem;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
+      transition: transform 0.2s ease, filter 0.2s ease;
+    }
+    .connect-btn:hover {
+      transform: scale(1.05);
+      filter: brightness(1.08);
     }
   </style>
 </head>
@@ -108,9 +96,8 @@
       <div id="media-container"></div>
     </div>
     <div id="status" class="status">Carregando vídeo...</div>
-    <div id="info" class="info"></div>
     <div class="actions">
-      <button id="release" class="btn">Conectar ao Wi-Fi</button>
+      <button id="release" class="connect-btn">Conectar ao Wi-Fi</button>
     </div>
   </div>
 
@@ -143,7 +130,6 @@
     const statusEl = document.getElementById("status");
     const mediaContainer = document.getElementById("media-container");
     const releaseBtn = document.getElementById("release");
-    const infoEl = document.getElementById("info");
     const statsEndpoint = `${API_BASE}/api/stats/event`;
     const userAgent = navigator.userAgent || "";
     const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;

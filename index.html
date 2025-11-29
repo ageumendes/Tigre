@@ -91,7 +91,7 @@
         </div>
       </section>
 
-      <section class="card promo-admin-card">
+      <section class="card promo-admin-card" style="display:none">
         <div class="card-head">
           <div>
             <p class="eyebrow">Promoções</p>
@@ -153,7 +153,7 @@
     </main>
 
     <footer class="footer">
-      <p>Quer outro fluxo? Ajuste o nome alvo em <code>script.js</code> e mantenha um único arquivo ativo na pasta <code>media/</code>.</p>
+      <p style="display:none">Quer outro fluxo? Ajuste o nome alvo em <code>script.js</code> e mantenha um único arquivo ativo na pasta <code>media/</code>.</p>
       <div class="actions">
         <a class="ghost-button primary" href="dashboard.html" target="_blank" rel="noopener">Ver Dashboard</a>
       </div>
@@ -165,6 +165,27 @@
     <div class="viewer-content">
       <button id="close-viewer" class="close-button" aria-label="Fechar">×</button>
       <div id="viewer-slot" class="viewer-slot"></div>
+    </div>
+  </div>
+
+  <div id="password-overlay" class="full-overlay hidden">
+    <div class="overlay-backdrop"></div>
+    <div class="overlay-card">
+      <h3>Autorização necessária</h3>
+      <p class="muted">Informe a senha para publicar a nova mídia.</p>
+      <input id="password-input" type="password" placeholder="Senha" autocomplete="off" />
+      <div class="overlay-actions">
+        <button id="password-cancel" class="ghost-button">Cancelar</button>
+        <button id="password-confirm" class="ghost-button primary">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-overlay" class="full-overlay hidden">
+    <div class="overlay-backdrop"></div>
+    <div class="status-bubble">
+      <div id="status-icon" class="status-icon">✓</div>
+      <div id="status-message">Tudo certo</div>
     </div>
   </div>
 
