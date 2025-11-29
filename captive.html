@@ -96,19 +96,29 @@
   </div>
 
   <script>
-    // Captura parâmetros enviados pelo AP (Intelbras).
     const params = new URLSearchParams(window.location.search);
-    const clientMac = params.get("clientMac") || "";
-    const clientIp = params.get("clientIp") || "";
-    const apMac = params.get("apMac") || "";
-    const apIp = params.get("apIp") || "10.0.0.1";
-    const ssid = params.get("ssid") || "";
-    const redirTarget =
-      params.get("redir") ||
-      params.get("success_url") ||
-      params.get("continue") ||
-      params.get("url") ||
+    const getParam = (...keys) => {
+      for (const key of keys) {
+        const value = params.get(key);
+        if (value !== null && value !== "") return value;
+      }
+      return "";
+    };
+
+    // Parâmetros enviados pelo AP (Intelbras).
+    const clientMac = getParam("mac", "clientMac");
+    const apIp = getParam("ip", "apIp") || "10.0.0.1";
+    const clientIp = getParam("clientIp");
+    const ssid = getParam("ssid");
+    const ts = getParam("ts");
+    const userHash = getParam("user_hash", "userHash");
+    const redirectUri = getParam("redirect_uri");
+    const continueUrl =
+      getParam("continue", "redir", "success_url", "url") ||
       "https://www.google.com";
+    const apMac = getParam("ap_mac", "apMac");
+    const radio = getParam("radio");
+    const defaultRedirectUri = "http://10.0.0.1:2061/cp/itbcaptive.cgi";
 
     const statusEl = document.getElementById("status");
     const videoEl = document.getElementById("media");
@@ -129,9 +139,31 @@
         <div><strong>IP do cliente:</strong> <code>${clientIp || "-"}</code></div>
         <div><strong>MAC do AP:</strong> <code>${apMac || "-"}</code></div>
         <div><strong>IP do AP:</strong> <code>${apIp}</code></div>
-        <div><strong>Redirecionamento:</strong> <code>${redirTarget}</code></div>
+        <div><strong>redirect_uri:</strong> <code>${redirectUri || defaultRedirectUri}</code></div>
+        <div><strong>continue:</strong> <code>${continueUrl}</code></div>
+        <div><strong>ts / user_hash:</strong> <code>${ts || "-"}</code> / <code>${userHash || "-"}</code></div>
+        <div><strong>Rádio:</strong> <code>${radio || "-"}</code></div>
       `;
-      console.log("clientMac:", clientMac, "clientIp:", clientIp, "apMac:", apMac, "apIp:", apIp, "redir:", redirTarget);
+      console.log(
+        "clientMac:",
+        clientMac,
+        "clientIp:",
+        clientIp,
+        "apMac:",
+        apMac,
+        "apIp:",
+        apIp,
+        "redirect_uri:",
+        redirectUri || defaultRedirectUri,
+        "continue:",
+        continueUrl,
+        "ts:",
+        ts,
+        "userHash:",
+        userHash,
+        "radio:",
+        radio
+      );
     };
 
     const loadVideo = async () => {
@@ -141,15 +173,41 @@
         const head = await fetch(url, { method: "HEAD", cache: "no-store" });
         if (!head.ok) throw new Error("Mídia não encontrada");
         videoEl.src = url;
-        setStatus("Pronto. Reproduza o vídeo ou clique para liberar.");
+        setStatus("Pronto. Assista ao vídeo ou clique para liberar.");
       } catch (err) {
         setStatus("Nenhuma mídia disponível no momento.", true);
       }
     };
 
+    const buildAuthUrl = () => {
+      const target = redirectUri || defaultRedirectUri;
+      if (!target) {
+        console.error("redirect_uri ausente; usando continueUrl como fallback");
+        return continueUrl;
+      }
+
+      try {
+        const url = new URL(target);
+        if (!ts) console.error("Parâmetro ts ausente; usando timestamp local");
+        if (!userHash) console.error("Parâmetro user_hash ausente; o AP pode não liberar o cliente");
+        const tsParam = ts || `${Date.now()}`;
+        url.searchParams.set("ts", tsParam);
+        url.searchParams.set("user_hash", userHash || "");
+        url.searchParams.set("continue", continueUrl);
+        url.searchParams.set("session_timeout", "3600");
+        url.searchParams.set("idle_timeout", "900");
+        return url.toString();
+      } catch (error) {
+        console.error("Erro ao montar URL de autorização:", error);
+        return continueUrl;
+      }
+    };
+
     const releaseAccess = () => {
-      setStatus("Conectando...");
-      window.location.href = redirTarget || "https://www.google.com";
+      const authUrl = buildAuthUrl();
+      console.log("Autorizando cliente via redirect_uri:", authUrl);
+      setStatus("Liberando acesso...");
+      window.location.href = authUrl;
     };
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -158,10 +216,7 @@
     });
 
     if (releaseBtn) releaseBtn.addEventListener("click", releaseAccess);
-    videoEl.addEventListener("ended", () => {
-      setStatus("Conectando...");
-      window.location.href = redirTarget || "https://www.google.com";
-    });
+    if (videoEl) videoEl.addEventListener("ended", releaseAccess);
   </script>
 </body>
 </html>
