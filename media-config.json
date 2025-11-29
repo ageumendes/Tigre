@@ -1,0 +1,60 @@
+{
+  "mode": "carousel",
+  "items": [
+    {
+      "path": "/media/carousel-1764432651904-29fc0e.jpeg",
+      "mime": "image/jpeg",
+      "size": 348740,
+      "updatedAt": 1764432651912.321
+    },
+    {
+      "path": "/media/carousel-1764432651910-c1d370.jpeg",
+      "mime": "image/jpeg",
+      "size": 398454,
+      "updatedAt": 1764432651917.321
+    },
+    {
+      "path": "/media/carousel-1764432651916-c43e1c.jpeg",
+      "mime": "image/jpeg",
+      "size": 402721,
+      "updatedAt": 1764432651920.321
+    },
+    {
+      "path": "/media/carousel-1764432651920-326756.jpeg",
+      "mime": "image/jpeg",
+      "size": 369204,
+      "updatedAt": 1764432651923.321
+    },
+    {
+      "path": "/media/carousel-1764432651923-c5c430.jpeg",
+      "mime": "image/jpeg",
+      "size": 410951,
+      "updatedAt": 1764432651926.321
+    },
+    {
+      "path": "/media/carousel-1764432651926-ec2218.jpeg",
+      "mime": "image/jpeg",
+      "size": 399443,
+      "updatedAt": 1764432651930.321
+    },
+    {
+      "path": "/media/carousel-1764432651930-b4b65d.jpeg",
+      "mime": "image/jpeg",
+      "size": 418026,
+      "updatedAt": 1764432651932.3208
+    },
+    {
+      "path": "/media/carousel-1764432651932-57b01c.jpeg",
+      "mime": "image/jpeg",
+      "size": 408849,
+      "updatedAt": 1764432651934.3208
+    },
+    {
+      "path": "/media/carousel-1764432651934-535ccb.jpeg",
+      "mime": "image/jpeg",
+      "size": 379088,
+      "updatedAt": 1764432651936.3208
+    }
+  ],
+  "updatedAt": 1764432651938
+}

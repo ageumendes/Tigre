@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard de Estatísticas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="pill">Wifi Supermercado Tigre</div>
+      <h1>Dashboard de Estatísticas</h1>
+      <p class="muted">Acompanhe engajamento do portal cativo: início e término de vídeos, cliques em conectar e liberações no AP.</p>
+      <div class="actions">
+        <a class="ghost-button" href="index.html">Voltar para painel</a>
+        <a class="ghost-button primary" href="captive.html" target="_blank" rel="noopener">Abrir portal cativo</a>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Visão geral</p>
+            <h2>Resumo</h2>
+          </div>
+        </div>
+        <div class="stats-metrics">
+          <div class="metric">
+            <p class="metric-label">Execuções de vídeo</p>
+            <p class="metric-value" id="metric-video-started">--</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Cliques em “Conectar”</p>
+            <p class="metric-value" id="metric-connect-clicked">--</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Autenticações</p>
+            <p class="metric-value" id="metric-auth-redirect">--</p>
+          </div>
+        </div>
+        <div id="summary-status" class="status"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Últimos 7 dias</p>
+            <h2>Eventos por dia</h2>
+          </div>
+        </div>
+        <div class="chart-area">
+          <canvas id="chart-canvas" class="chart-canvas"></canvas>
+        </div>
+        <div id="chart-status" class="status"></div>
+      </section>
+    </main>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">Atividade recente</p>
+          <h2>Últimos eventos</h2>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>SSID</th>
+              <th>MAC</th>
+              <th>Data/Hora</th>
+            </tr>
+          </thead>
+          <tbody id="recent-body">
+            <tr><td colspan="4" class="muted">Carregando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="recent-status" class="status"></div>
+    </section>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

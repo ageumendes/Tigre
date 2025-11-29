@@ -10,15 +10,35 @@ const uploadStatus = document.getElementById("upload-status");
 const uploadPreview = document.getElementById("upload-preview");
 const viewUploadButton = document.getElementById("view-upload-button");
 const publishButton = document.getElementById("publish-button");
+const mediaTypeSelect = document.getElementById("media-type-select");
 
 const viewerOverlay = document.getElementById("viewer-overlay");
 const viewerSlot = document.getElementById("viewer-slot");
 const closeViewerButton = document.getElementById("close-viewer");
 
-const ALLOWED_UPLOAD_MIMES = ["video/mp4"];
+// Promo admin elements
+const promoStatus = document.getElementById("promo-admin-status");
+const promoListAdmin = document.getElementById("promo-list-admin");
+const promoForm = document.getElementById("promo-form");
+const promoTitleInput = document.getElementById("promo-title");
+const promoPriceInput = document.getElementById("promo-price");
+const promoBadgeInput = document.getElementById("promo-badge");
+const promoValidInput = document.getElementById("promo-valid");
+const promoImageInput = document.getElementById("promo-image");
+const promoActiveInput = document.getElementById("promo-active");
+const promoDescriptionInput = document.getElementById("promo-description");
+const promoSaveButton = document.getElementById("promo-save-button");
+const promoCancelButton = document.getElementById("promo-cancel-edit");
+const reloadPromosButton = document.getElementById("reload-promos-admin");
+
+const ALLOWED_UPLOAD_MIMES = ["video/mp4", "image/jpeg", "image/png", "image/webp"];
 let currentLiveMedia = null;
 let currentUpload = null;
 let uploadUrl = null;
+let uploadUrls = [];
+let selectedMediaType = "video";
+let promoEditingId = null;
+let promoCache = [];
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 
@@ -32,6 +52,23 @@ const setUploadMessage = (message, isError = false) => {
   if (!uploadStatus) return;
   uploadStatus.textContent = message;
   uploadStatus.classList.toggle("error", isError);
+};
+
+const setPromoMessage = (message, isError = false) => {
+  if (!promoStatus) return;
+  promoStatus.textContent = message;
+  promoStatus.classList.toggle("error", isError);
+};
+
+const updateMediaType = () => {
+  selectedMediaType = mediaTypeSelect?.value || "video";
+  if (uploadInput) uploadInput.multiple = selectedMediaType === "carousel";
+  resetUpload();
+  const hint =
+    selectedMediaType === "carousel"
+      ? "Selecione até 10 imagens para o carrossel."
+      : "Nenhum arquivo selecionado.";
+  setUploadMessage(hint);
 };
 
 const renderPlaceholder = () => {
@@ -58,7 +95,26 @@ const renderMediaInto = (target, candidate) => {
   if (!target || !candidate) return;
 
   target.innerHTML = "";
-  if (candidate.kind === "video") {
+  if (candidate.mode === "carousel") {
+    const main = document.createElement("div");
+    main.className = "placeholder";
+    main.innerHTML = `
+      <p>Carrossel com ${candidate.items?.length || 0} imagens.</p>
+      <small>Visualize o primeiro item abaixo.</small>
+    `;
+    target.appendChild(main);
+
+    const first = candidate.items?.[0];
+    if (first) {
+      const img = document.createElement("img");
+      img.src = first.url || first.path;
+      img.alt = first.path || "Carrossel";
+      target.appendChild(img);
+    }
+    return;
+  }
+
+  if (candidate.kind === "video" || candidate.mode === "video") {
     const video = document.createElement("video");
     video.src = candidate.url;
     video.controls = true;
@@ -79,9 +135,24 @@ const fetchLatestInfo = async () => {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) return null;
   const data = await response.json();
-  const kind = data.mime && data.mime.startsWith("video/") ? "video" : "image";
-  const mediaUrl = `${buildUrl(data.path)}?t=${Date.now()}`;
-  return { url: mediaUrl, kind, path: data.path, mime: data.mime, size: data.size, updatedAt: data.updatedAt };
+  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+  const items = (data.items || []).map((item) => ({
+    ...item,
+    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+  }));
+  const primary = items[0] || data;
+  const mediaUrl = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : null;
+  const kind = mode === "video" ? "video" : "image";
+  return {
+    url: mediaUrl,
+    kind,
+    mode,
+    path: primary.path,
+    mime: primary.mime,
+    size: primary.size,
+    updatedAt: primary.updatedAt,
+    items,
+  };
 };
 
 const loadMedia = async () => {
@@ -103,12 +174,21 @@ const loadMedia = async () => {
   }
 
   renderMediaInto(mediaArea, currentLiveMedia);
-  setStatus(`Mostrando ${currentLiveMedia.path.replace("/media/", "")}`);
+  const name = currentLiveMedia.path ? currentLiveMedia.path.replace("/media/", "") : "mídia atual";
+  const modeLabel =
+    currentLiveMedia.mode === "carousel"
+      ? `Carrossel (${currentLiveMedia.items?.length || 0} imagens)`
+      : currentLiveMedia.mode === "image"
+      ? "Imagem"
+      : "Vídeo";
+  setStatus(`Mostrando ${name} — ${modeLabel}`);
   if (viewLiveButton) viewLiveButton.disabled = false;
 };
 
 const resetUpload = () => {
   currentUpload = null;
+  uploadUrls.forEach((url) => URL.revokeObjectURL(url));
+  uploadUrls = [];
   renderUploadPlaceholder();
   setUploadMessage("Nenhum arquivo selecionado.");
   if (viewUploadButton) viewUploadButton.disabled = true;
@@ -120,7 +200,48 @@ const resetUpload = () => {
   }
 };
 
-const showUpload = (file) => {
+const showUploadSelection = (files) => {
+  if (!files || !files.length) {
+    resetUpload();
+    return;
+  }
+
+  const mode = selectedMediaType;
+  uploadUrls.forEach((url) => URL.revokeObjectURL(url));
+  uploadUrls = [];
+
+  if (mode === "carousel") {
+    const images = Array.from(files);
+    uploadUrls = images.map((file) => URL.createObjectURL(file));
+    currentUpload = {
+      mode: "carousel",
+      files: images,
+      items: uploadUrls.map((url, idx) => ({ url, name: images[idx].name })),
+    };
+    const totalMb = images.reduce((acc, file) => acc + file.size, 0) / (1024 * 1024);
+    setUploadMessage(`Selecionadas ${images.length} imagens (${totalMb.toFixed(2)} MB) para o carrossel.`);
+    if (uploadPreview) {
+      uploadPreview.innerHTML = "";
+      const grid = document.createElement("div");
+      grid.className = "promo-grid";
+      currentUpload.items.forEach((item) => {
+        const img = document.createElement("img");
+        img.src = item.url;
+        img.alt = item.name || "Imagem do carrossel";
+        img.style.borderRadius = "10px";
+        img.style.objectFit = "cover";
+        img.style.height = "120px";
+        img.style.width = "100%";
+        grid.appendChild(img);
+      });
+      uploadPreview.appendChild(grid);
+    }
+    if (viewUploadButton) viewUploadButton.disabled = true;
+    if (publishButton) publishButton.disabled = false;
+    return;
+  }
+
+  const [file] = files;
   if (!file) {
     resetUpload();
     return;
@@ -130,7 +251,7 @@ const showUpload = (file) => {
   uploadUrl = URL.createObjectURL(file);
   const kind = file.type.startsWith("video/") ? "video" : "image";
 
-  currentUpload = { url: uploadUrl, kind, name: file.name, file };
+  currentUpload = { url: uploadUrl, kind, mode, name: file.name, file };
   const prettySize = (file.size / (1024 * 1024)).toFixed(2);
   setUploadMessage(`Selecionado: ${file.name} (${prettySize} MB)`);
   renderMediaInto(uploadPreview, currentUpload);
@@ -140,32 +261,78 @@ const showUpload = (file) => {
 };
 
 const handleUploadChange = (event) => {
-  const [file] = event.target.files || [];
-  if (!file) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length) {
     resetUpload();
     return;
   }
 
-  const allowed = ALLOWED_UPLOAD_MIMES.includes(file.type);
-  if (!allowed) {
-    resetUpload();
-    setUploadMessage("Apenas MP4 é aceito.", true);
+  const mode = selectedMediaType;
+  const isVideoMode = mode === "video";
+  const isCarousel = mode === "carousel";
+
+  if (isVideoMode) {
+    const [file] = files;
+    if (!file.type.startsWith("video/")) {
+      resetUpload();
+      setUploadMessage("Selecione um arquivo de vídeo MP4 para o modo Vídeo.", true);
+      return;
+    }
+    showUploadSelection([file]);
     return;
   }
 
-  showUpload(file);
+  if (isCarousel) {
+    if (files.length > 10) {
+      resetUpload();
+      setUploadMessage("Envie no máximo 10 imagens para o carrossel.", true);
+      return;
+    }
+    const invalid = files.some((file) => !file.type.startsWith("image/"));
+    if (invalid) {
+      resetUpload();
+      setUploadMessage("O carrossel aceita apenas imagens (JPG, PNG, WebP).", true);
+      return;
+    }
+    showUploadSelection(files);
+    return;
+  }
+
+  // Modo imagem única
+  const [file] = files;
+  if (!file.type.startsWith("image/")) {
+    resetUpload();
+    setUploadMessage("Selecione uma imagem (JPG, PNG, WebP) para o modo Imagem.", true);
+    return;
+  }
+  showUploadSelection([file]);
 };
 
 const publishUpload = async () => {
-  if (!currentUpload?.file) return;
+  if (!currentUpload) return;
+  const mode = selectedMediaType;
+  const isCarousel = mode === "carousel";
+
+  const filesToSend = isCarousel ? currentUpload.files : [currentUpload.file];
+  if (!filesToSend || !filesToSend.length) {
+    setUploadMessage("Selecione arquivos antes de publicar.", true);
+    return;
+  }
+
   if (publishButton) publishButton.disabled = true;
   setUploadMessage("Enviando e publicando...");
 
   const formData = new FormData();
-  formData.append("file", currentUpload.file);
+  if (isCarousel) {
+    filesToSend.forEach((file) => formData.append("files", file));
+  } else {
+    formData.append("file", filesToSend[0]);
+  }
+
+  const endpoint = isCarousel ? "/api/upload-carousel" : "/api/upload";
 
   try {
-    const response = await fetch(buildUrl("/api/upload"), {
+    const response = await fetch(buildUrl(endpoint), {
       method: "POST",
       body: formData,
     });
@@ -198,10 +365,174 @@ const closeViewer = () => {
   viewerSlot.innerHTML = "";
 };
 
+const formatDate = (value) => {
+  if (!value) return "Sem validade";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("pt-BR");
+};
+
+const renderPromoList = () => {
+  if (!promoListAdmin) return;
+  promoListAdmin.innerHTML = "";
+  if (!promoCache.length) {
+    promoListAdmin.innerHTML = `
+      <div class="placeholder">
+        <p>Nenhuma promoção cadastrada.</p>
+        <small>Use o formulário abaixo para criar uma.</small>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = promoCache.map((promo) => {
+    const status = promo.active === false ? "Inativa" : "Ativa";
+    const validity = promo.validUntil ? `Até ${formatDate(promo.validUntil)}` : "Sem validade";
+    const price = promo.price ? `Preço: ${promo.price}` : "Sem preço";
+    const badge = promo.badge ? `• ${promo.badge}` : "";
+    return `
+      <div class="promo-row">
+        <div>
+          <p class="promo-row-title">${promo.title || "Promoção"}</p>
+          <p class="promo-row-meta">${status} — ${validity} — ${price} ${badge}</p>
+        </div>
+        <div class="actions">
+          <button class="ghost-button small" data-action="edit" data-id="${promo.id}">Editar</button>
+          <button class="ghost-button small" data-action="delete" data-id="${promo.id}">Excluir</button>
+        </div>
+      </div>
+    `;
+  });
+
+  promoListAdmin.innerHTML = rows.join("");
+};
+
+const resetPromoForm = () => {
+  promoEditingId = null;
+  if (promoForm) promoForm.reset();
+  if (promoActiveInput) promoActiveInput.checked = true;
+  if (promoSaveButton) promoSaveButton.textContent = "Salvar promoção";
+  if (promoCancelButton) {
+    promoCancelButton.setAttribute("aria-disabled", "true");
+    promoCancelButton.disabled = true;
+  }
+};
+
+const fillPromoForm = (promo) => {
+  promoEditingId = promo?.id || null;
+  if (promoTitleInput) promoTitleInput.value = promo?.title || "";
+  if (promoPriceInput) promoPriceInput.value = promo?.price || "";
+  if (promoBadgeInput) promoBadgeInput.value = promo?.badge || "";
+  if (promoValidInput) promoValidInput.value = promo?.validUntil || "";
+  if (promoImageInput) promoImageInput.value = promo?.imageUrl || "";
+  if (promoDescriptionInput) promoDescriptionInput.value = promo?.description || "";
+  if (promoActiveInput) promoActiveInput.checked = promo?.active !== false;
+  if (promoSaveButton) promoSaveButton.textContent = promoEditingId ? "Salvar alterações" : "Salvar promoção";
+  if (promoCancelButton) {
+    promoCancelButton.removeAttribute("aria-disabled");
+    promoCancelButton.disabled = false;
+  }
+};
+
+const fetchPromosAdmin = async () => {
+  if (!promoStatus) return;
+  setPromoMessage("Carregando promoções...");
+  try {
+    const response = await fetch(buildUrl(`/api/promos?t=${Date.now()}`), { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao carregar promoções.");
+    promoCache = data.promos || [];
+    renderPromoList();
+    setPromoMessage(`Promoções: ${promoCache.length}`);
+  } catch (error) {
+    console.error(error);
+    setPromoMessage(error.message || "Erro ao carregar promoções.", true);
+  }
+};
+
+const handlePromoSubmit = async (event) => {
+  event.preventDefault();
+  if (!promoForm) return;
+  const title = (promoTitleInput?.value || "").trim();
+  if (!title) {
+    setPromoMessage("Título é obrigatório.", true);
+    return;
+  }
+
+  const payload = {
+    title,
+    price: (promoPriceInput?.value || "").trim(),
+    badge: (promoBadgeInput?.value || "").trim(),
+    validUntil: (promoValidInput?.value || "").trim(),
+    imageUrl: (promoImageInput?.value || "").trim(),
+    description: (promoDescriptionInput?.value || "").trim(),
+    active: !!promoActiveInput?.checked,
+  };
+
+  const method = promoEditingId ? "PUT" : "POST";
+  const url = promoEditingId ? buildUrl(`/api/promos/${promoEditingId}`) : buildUrl("/api/promos");
+  setPromoMessage(promoEditingId ? "Atualizando promoção..." : "Criando promoção...");
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao salvar promoção.");
+    setPromoMessage("Promoção salva com sucesso.");
+    resetPromoForm();
+    await fetchPromosAdmin();
+  } catch (error) {
+    console.error(error);
+    setPromoMessage(error.message || "Erro ao salvar promoção.", true);
+  }
+};
+
+const deletePromo = async (id) => {
+  if (!id) return;
+  setPromoMessage("Removendo promoção...");
+  try {
+    const response = await fetch(buildUrl(`/api/promos/${id}`), { method: "DELETE" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao remover promoção.");
+    setPromoMessage("Promoção removida.");
+    await fetchPromosAdmin();
+    if (promoEditingId === id) resetPromoForm();
+  } catch (error) {
+    console.error(error);
+    setPromoMessage(error.message || "Erro ao remover promoção.", true);
+  }
+};
+
+const handlePromoListClick = (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const action = target.dataset.action;
+  const id = target.dataset.id;
+  if (!action || !id) return;
+
+  if (action === "edit") {
+    const promo = promoCache.find((p) => p.id === id);
+    if (promo) fillPromoForm(promo);
+  }
+  if (action === "delete") {
+    const confirmDelete = window.confirm("Deseja remover esta promoção?");
+    if (confirmDelete) deletePromo(id);
+  }
+};
+
 const init = () => {
   renderPlaceholder();
   resetUpload();
   loadMedia();
+
+  if (mediaTypeSelect) {
+    selectedMediaType = mediaTypeSelect.value;
+    updateMediaType();
+    mediaTypeSelect.addEventListener("change", updateMediaType);
+  }
 
   if (refreshButton) refreshButton.addEventListener("click", () => loadMedia());
   if (viewLiveButton) viewLiveButton.addEventListener("click", () => openViewer(currentLiveMedia));
@@ -231,6 +562,20 @@ const init = () => {
       loadMedia();
     }
   });
+
+  if (promoForm) {
+    promoForm.addEventListener("submit", handlePromoSubmit);
+    resetPromoForm();
+    fetchPromosAdmin();
+  }
+  if (promoListAdmin) promoListAdmin.addEventListener("click", handlePromoListClick);
+  if (promoCancelButton) {
+    promoCancelButton.addEventListener("click", () => {
+      resetPromoForm();
+      setPromoMessage("Edição cancelada.");
+    });
+  }
+  if (reloadPromosButton) reloadPromosButton.addEventListener("click", fetchPromosAdmin);
 };
 
 window.addEventListener("DOMContentLoaded", init);

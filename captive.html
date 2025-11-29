@@ -38,11 +38,30 @@
       box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
       border: 1px solid rgba(0, 0, 0, 0.05);
     }
-    video {
+    #media-container video,
+    #media-container img {
       width: 100%;
       border-radius: 10px;
       background: #160a00;
       border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    #media-container {
+      width: 100%;
+    }
+    .carousel-nav {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .carousel-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .carousel-dot.active {
+      background: #d62828;
     }
     .status {
       font-size: 13px;
@@ -86,7 +105,7 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <video id="media" playsinline autoplay muted controls preload="auto"></video>
+      <div id="media-container"></div>
     </div>
     <div id="status" class="status">Carregando vídeo...</div>
     <div id="info" class="info"></div>
@@ -96,6 +115,7 @@
   </div>
 
   <script>
+    const API_BASE = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
     const params = new URLSearchParams(window.location.search);
     const getParam = (...keys) => {
       for (const key of keys) {
@@ -121,9 +141,18 @@
     const defaultRedirectUri = "http://10.0.0.1:2061/cp/itbcaptive.cgi";
 
     const statusEl = document.getElementById("status");
-    const videoEl = document.getElementById("media");
+    const mediaContainer = document.getElementById("media-container");
     const releaseBtn = document.getElementById("release");
     const infoEl = document.getElementById("info");
+    const statsEndpoint = `${API_BASE}/api/stats/event`;
+    const userAgent = navigator.userAgent || "";
+    const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+    let hasReleased = false;
+    let startedLogged = false;
+    let completedLogged = false;
+    let mediaMode = "video";
+    let carouselTimer = null;
+    let carouselIndex = 0;
 
     const setStatus = (msg, isError = false) => {
       if (!statusEl) return;
@@ -131,19 +160,20 @@
       statusEl.style.color = isError ? "#b11212" : "#4d3410";
     };
 
+    const sendEvent = async (type) => {
+      try {
+        await fetch(statsEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type, clientMac, clientIp, ssid, userAgent }),
+          keepalive: true,
+        });
+      } catch (error) {
+        console.warn("Não foi possível registrar evento", type, error);
+      }
+    };
+
     const renderInfo = () => {
-      if (!infoEl) return;
-      infoEl.innerHTML = `
-        <div><strong>SSID:</strong> <code>${ssid || "-"}</code></div>
-        <div><strong>MAC do cliente:</strong> <code>${clientMac || "-"}</code></div>
-        <div><strong>IP do cliente:</strong> <code>${clientIp || "-"}</code></div>
-        <div><strong>MAC do AP:</strong> <code>${apMac || "-"}</code></div>
-        <div><strong>IP do AP:</strong> <code>${apIp}</code></div>
-        <div><strong>redirect_uri:</strong> <code>${redirectUri || defaultRedirectUri}</code></div>
-        <div><strong>continue:</strong> <code>${continueUrl}</code></div>
-        <div><strong>ts / user_hash:</strong> <code>${ts || "-"}</code> / <code>${userHash || "-"}</code></div>
-        <div><strong>Rádio:</strong> <code>${radio || "-"}</code></div>
-      `;
       console.log(
         "clientMac:",
         clientMac,
@@ -166,16 +196,140 @@
       );
     };
 
-    const loadVideo = async () => {
-      setStatus("Carregando vídeo...");
-      const url = `/media/latest.mp4?t=${Date.now()}`;
-      try {
-        const head = await fetch(url, { method: "HEAD", cache: "no-store" });
-        if (!head.ok) throw new Error("Mídia não encontrada");
-        videoEl.src = url;
-        setStatus("Pronto. Assista ao vídeo ou clique para liberar.");
-      } catch (err) {
+    const logStartedOnce = () => {
+      if (startedLogged) return;
+      startedLogged = true;
+      sendEvent("video_started");
+    };
+
+    const logCompletedOnce = () => {
+      if (completedLogged) return;
+      completedLogged = true;
+      sendEvent("video_completed");
+    };
+
+    const clearCarouselTimer = () => {
+      if (carouselTimer) {
+        clearInterval(carouselTimer);
+        carouselTimer = null;
+      }
+    };
+
+    const renderCarousel = (items) => {
+      if (!mediaContainer) return;
+      mediaContainer.innerHTML = "";
+      clearCarouselTimer();
+      carouselIndex = 0;
+      const img = document.createElement("img");
+      img.alt = "Carrossel";
+      const dots = document.createElement("div");
+      dots.className = "carousel-nav";
+
+      const update = (index) => {
+        if (!items.length) return;
+        carouselIndex = (index + items.length) % items.length;
+        img.src = items[carouselIndex].url;
+        dots.querySelectorAll(".carousel-dot").forEach((dot, idx) => {
+          dot.classList.toggle("active", idx === carouselIndex);
+        });
+      };
+
+      img.onload = logStartedOnce;
+      mediaContainer.appendChild(img);
+
+      if (items.length > 1) {
+        items.forEach((_item, idx) => {
+          const dot = document.createElement("div");
+          dot.className = "carousel-dot";
+          dot.addEventListener("click", () => update(idx));
+          dots.appendChild(dot);
+        });
+        mediaContainer.appendChild(dots);
+        carouselTimer = setInterval(() => update(carouselIndex + 1), 4000);
+      }
+
+      update(0);
+    };
+
+    const renderImage = (item) => {
+      if (!mediaContainer) return;
+      mediaContainer.innerHTML = "";
+      clearCarouselTimer();
+      const img = document.createElement("img");
+      img.src = item.url;
+      img.alt = "Imagem de promoção";
+      img.onload = logStartedOnce;
+      mediaContainer.appendChild(img);
+    };
+
+    const renderVideo = (item) => {
+      if (!mediaContainer) return;
+      mediaContainer.innerHTML = "";
+      clearCarouselTimer();
+      const video = document.createElement("video");
+      video.playsInline = true;
+      video.autoplay = true;
+      video.muted = true;
+      video.controls = true;
+      video.preload = "auto";
+      video.src = item.url;
+      video.addEventListener("play", logStartedOnce, { once: true });
+      video.addEventListener("ended", () => {
+        logCompletedOnce();
+        releaseAccess();
+      });
+      mediaContainer.appendChild(video);
+    };
+
+    const renderMedia = (mode, items) => {
+      if (!items.length) {
         setStatus("Nenhuma mídia disponível no momento.", true);
+        return;
+      }
+      mediaMode = mode;
+      startedLogged = false;
+      completedLogged = false;
+
+      if (mode === "video") {
+        renderVideo(items[0]);
+        setStatus("Pronto. Assista ao vídeo ou clique para liberar.");
+      } else if (mode === "carousel") {
+        renderCarousel(items);
+        setStatus("Pronto. Veja o carrossel ou clique para liberar.");
+      } else {
+        renderImage(items[0]);
+        setStatus("Pronto. Veja a imagem ou clique para liberar.");
+      }
+    };
+
+    const loadMedia = async () => {
+      setStatus("Carregando mídia...");
+      clearCarouselTimer();
+      startedLogged = false;
+      completedLogged = false;
+
+      try {
+        const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.ok) throw new Error(data?.message || "Nenhuma mídia disponível.");
+        const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+        const items = (data.items || []).map((item) => ({
+          ...item,
+          url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+        }));
+        if (!items.length && data.path) {
+          items.push({
+            path: data.path,
+            url: `${buildUrl(data.path)}?t=${Date.now()}`,
+            mime: data.mime,
+            size: data.size,
+            updatedAt: data.updatedAt,
+          });
+        }
+        renderMedia(mode, items);
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message || "Nenhuma mídia disponível no momento.", true);
       }
     };
 
@@ -204,19 +358,27 @@
     };
 
     const releaseAccess = () => {
+      if (hasReleased) return;
+      hasReleased = true;
       const authUrl = buildAuthUrl();
       console.log("Autorizando cliente via redirect_uri:", authUrl);
       setStatus("Liberando acesso...");
+      sendEvent("auth_redirect");
       window.location.href = authUrl;
+    };
+
+    const handleConnectClick = () => {
+      sendEvent("connect_clicked");
+      logCompletedOnce();
+      releaseAccess();
     };
 
     document.addEventListener("DOMContentLoaded", () => {
       renderInfo();
-      loadVideo();
+      loadMedia();
     });
 
-    if (releaseBtn) releaseBtn.addEventListener("click", releaseAccess);
-    if (videoEl) videoEl.addEventListener("ended", releaseAccess);
+    if (releaseBtn) releaseBtn.addEventListener("click", handleConnectClick);
   </script>
 </body>
 </html>
