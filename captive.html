@@ -397,27 +397,30 @@
         document.body.removeChild(textarea);
       }
     };
+      const handleShareClick = async () => {
+        try {
+          sendEvent("share_clicked");
 
-    const handleShareClick = async () => {
-      try {
-        sendEvent("share_clicked");
-        const shareUrl = continueUrl || window.location.origin;
-        if (navigator.share) {
-          await navigator.share({
-            title: "Wi-Fi liberado",
-            text: "Conecte-se ao Wi-Fi e confira as promoções.",
-            url: shareUrl,
-          });
-          setStatus("Compartilhado com sucesso.");
-          return;
+          const shareUrl = continueUrl || `${window.location.origin}/viewer.html`;
+
+          if (navigator.share) {
+            await navigator.share({
+              title: "Promoções do Supermercado Tigre",
+              text: "Confira as promoções do Supermercado Tigre.",
+              url: shareUrl,
+            });
+            setStatus("Compartilhado com sucesso.");
+            return;
+          }
+
+          await copyToClipboard(shareUrl);
+          setStatus("Link copiado para compartilhar.", false);
+        } catch (err) {
+          console.error("Erro ao compartilhar:", err);
+          setStatus("Não foi possível compartilhar.", true);
         }
-        const copied = await copyToClipboard(shareUrl);
-        setStatus(copied ? "Link copiado para compartilhar." : "Não foi possível copiar o link.", !copied);
-      } catch (err) {
-        console.error("Erro ao compartilhar:", err);
-        setStatus("Não foi possível compartilhar.", true);
-      }
-    };
+      };
+
 
     const buildAuthUrl = () => {
       const target = redirectUri || defaultRedirectUri;
