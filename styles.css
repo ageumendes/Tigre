@@ -694,6 +694,83 @@ body {
   background: #020617;
 }
 
+.full-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.full-overlay:not(.hidden) {
+  display: flex;
+}
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.overlay-card,
+.status-bubble {
+  position: relative;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+  min-width: min(380px, 92vw);
+  display: grid;
+  gap: 12px;
+}
+
+.overlay-card h3 {
+  margin: 0;
+  font-family: "Sora", "Helvetica Neue", Arial, sans-serif;
+}
+
+.overlay-card input[type="password"] {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 16px;
+}
+
+.overlay-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.status-bubble {
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+  min-width: 260px;
+}
+
+.status-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  background: #2ecc71;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.status-icon.error {
+  background: #d62828;
+}
+
 .close-button {
   position: absolute;
   top: 10px;

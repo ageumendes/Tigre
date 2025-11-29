@@ -14,6 +14,7 @@ const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
+const DEFAULT_UPLOAD_PASSWORD = process.env.UPLOAD_PASSWORD || "Tigre@12.";
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -145,6 +146,19 @@ const writeStats = (events) => {
 };
 
 const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0, max) : "");
+
+// Middleware simples para exigir senha no upload. Use a variável de ambiente UPLOAD_PASSWORD para trocar o valor.
+const requireUploadAuth = (req, res, next) => {
+  const secret = DEFAULT_UPLOAD_PASSWORD;
+  const provided = req.headers["x-upload-password"];
+  if (!secret) {
+    return res.status(500).json({ ok: false, message: "Senha de upload não configurada no servidor." });
+  }
+  if (provided !== secret) {
+    return res.status(401).json({ ok: false, message: "Senha inválida para upload." });
+  }
+  return next();
+};
 
 const formatDay = (timestamp) => {
   const d = new Date(timestamp);
@@ -295,7 +309,7 @@ app.get("/api/info", (_req, res) => {
   });
 });
 
-app.post("/api/upload", upload.single("file"), (req, res) => {
+app.post("/api/upload", requireUploadAuth, upload.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ ok: false, message: "Arquivo ausente no campo 'file'." });
   }
@@ -324,7 +338,7 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
 });
 
 // Upload de carrossel de imagens (máx. 10).
-app.post("/api/upload-carousel", uploadCarousel.array("files", 10), (req, res) => {
+app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 10), (req, res) => {
   const files = req.files || [];
   if (!files.length) {
     return res.status(400).json({ ok: false, message: "Nenhum arquivo enviado (campo 'files')." });

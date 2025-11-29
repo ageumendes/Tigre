@@ -11,6 +11,13 @@ const uploadPreview = document.getElementById("upload-preview");
 const viewUploadButton = document.getElementById("view-upload-button");
 const publishButton = document.getElementById("publish-button");
 const mediaTypeSelect = document.getElementById("media-type-select");
+const passwordOverlay = document.getElementById("password-overlay");
+const passwordInput = document.getElementById("password-input");
+const passwordConfirm = document.getElementById("password-confirm");
+const passwordCancel = document.getElementById("password-cancel");
+const statusOverlay = document.getElementById("status-overlay");
+const statusIcon = document.getElementById("status-icon");
+const statusMessage = document.getElementById("status-message");
 
 const viewerOverlay = document.getElementById("viewer-overlay");
 const viewerSlot = document.getElementById("viewer-slot");
@@ -53,6 +60,50 @@ const setUploadMessage = (message, isError = false) => {
   uploadStatus.textContent = message;
   uploadStatus.classList.toggle("error", isError);
 };
+
+const showStatusOverlay = (message, isSuccess = true) => {
+  if (!statusOverlay || !statusIcon || !statusMessage) return;
+  statusMessage.textContent = message;
+  statusIcon.textContent = isSuccess ? "✓" : "!";
+  statusIcon.classList.toggle("error", !isSuccess);
+  statusOverlay.classList.remove("hidden");
+  setTimeout(() => {
+    statusOverlay.classList.add("hidden");
+  }, 3000);
+};
+
+const requestPassword = () =>
+  new Promise((resolve) => {
+    if (!passwordOverlay || !passwordInput || !passwordConfirm || !passwordCancel) {
+      const direct = window.prompt("Digite a senha para publicar a mídia:");
+      resolve(direct || "");
+      return;
+    }
+    passwordOverlay.classList.remove("hidden");
+    passwordInput.value = "";
+    passwordInput.focus();
+
+    const close = (value) => {
+      passwordOverlay.classList.add("hidden");
+      resolve(value);
+      passwordConfirm.removeEventListener("click", onConfirm);
+      passwordCancel.removeEventListener("click", onCancel);
+    };
+
+    const onConfirm = () => close(passwordInput.value || "");
+    const onCancel = () => close("");
+
+    passwordConfirm.addEventListener("click", onConfirm);
+    passwordCancel.addEventListener("click", onCancel);
+    passwordOverlay.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Enter") onConfirm();
+        if (event.key === "Escape") onCancel();
+      },
+      { once: true }
+    );
+  });
 
 const setPromoMessage = (message, isError = false) => {
   if (!promoStatus) return;
@@ -313,6 +364,13 @@ const publishUpload = async () => {
   const mode = selectedMediaType;
   const isCarousel = mode === "carousel";
 
+  const password = await requestPassword();
+  if (!password) {
+    setUploadMessage("Publicação cancelada: senha não informada.", true);
+    return;
+  }
+  setUploadMessage("Senha aceita. Enviando e publicando...");
+
   const filesToSend = isCarousel ? currentUpload.files : [currentUpload.file];
   if (!filesToSend || !filesToSend.length) {
     setUploadMessage("Selecione arquivos antes de publicar.", true);
@@ -334,15 +392,21 @@ const publishUpload = async () => {
   try {
     const response = await fetch(buildUrl(endpoint), {
       method: "POST",
+      headers: { "x-upload-password": password },
       body: formData,
     });
 
     const data = await response.json().catch(() => null);
+    if (response.status === 401) {
+      showStatusOverlay("Senha incorreta. Publicação não autorizada.", false);
+      throw new Error("Senha incorreta. Publicação não autorizada.");
+    }
     if (!response.ok || !data?.ok) {
       throw new Error(data?.message || "Falha ao enviar. Verifique o backend.");
     }
 
     setUploadMessage("Publicado com sucesso! Atualizando visualização...");
+    showStatusOverlay("Senha correta. Publicando...", true);
     await loadMedia();
   } catch (error) {
     console.error(error);
