@@ -165,6 +165,7 @@
     const statsEndpoint = `${API_BASE}/api/stats/event`;
     const userAgent = navigator.userAgent || "";
     const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+    const defaultShareUrl = window.APP_CONFIG?.shareUrl || `${window.location.origin}/viewer.html`;
     let hasReleased = false;
     let startedLogged = false;
     let completedLogged = false;
@@ -397,29 +398,29 @@
         document.body.removeChild(textarea);
       }
     };
-      const handleShareClick = async () => {
-        try {
-          sendEvent("share_clicked");
+    const handleShareClick = async () => {
+      try {
+        sendEvent("share_clicked");
 
-          const shareUrl = continueUrl || `${window.location.origin}/viewer.html`;
+        const shareUrl = defaultShareUrl || window.location.origin;
 
-          if (navigator.share) {
-            await navigator.share({
-              title: "Promoções do Supermercado Tigre",
-              text: "Confira as promoções do Supermercado Tigre.",
-              url: shareUrl,
-            });
-            setStatus("Compartilhado com sucesso.");
-            return;
-          }
-
-          await copyToClipboard(shareUrl);
-          setStatus("Link copiado para compartilhar.", false);
-        } catch (err) {
-          console.error("Erro ao compartilhar:", err);
-          setStatus("Não foi possível compartilhar.", true);
+        if (navigator.share) {
+          await navigator.share({
+            title: "Promoções do Supermercado Tigre",
+            text: "Confira as promoções do Supermercado Tigre.",
+            url: shareUrl,
+          });
+          setStatus("Compartilhado com sucesso.");
+          return;
         }
-      };
+
+        await copyToClipboard(shareUrl);
+        setStatus("Link copiado para compartilhar.", false);
+      } catch (err) {
+        console.error("Erro ao compartilhar:", err);
+        setStatus("Não foi possível compartilhar.", true);
+      }
+    };
 
 
     const buildAuthUrl = () => {
