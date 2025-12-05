@@ -12,6 +12,7 @@ const mediaDir = process.env.MEDIA_DIR
 const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
+const rokuBannersFile = path.join(__dirname, "config", "roku-banners.txt");
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
 const DEFAULT_UPLOAD_PASSWORD = process.env.UPLOAD_PASSWORD || "Tigre@12.";
@@ -270,6 +271,19 @@ const isPromoActive = (promo) => {
   if (Number.isNaN(until)) return true;
   return until >= Date.now();
 };
+
+// Rota simples para Roku: lê a lista de banners em texto plano.
+// Para atualizar o carrossel da Roku, edite config/roku-banners.txt (uma URL por linha) e faça o deploy.
+app.get("/roku-banners.txt", (_req, res) => {
+  fs.readFile(rokuBannersFile, "utf8", (err, data) => {
+    if (err) {
+      console.error("Erro ao ler roku-banners.txt:", err.message);
+      return res.status(500).send("Erro ao carregar lista de banners");
+    }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    return res.status(200).send(data);
+  });
+});
 
 app.get("/api/info", (_req, res) => {
   const config = readMediaConfig();
