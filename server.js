@@ -13,6 +13,7 @@ const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const rokuBannersFile = path.join(__dirname, "config", "roku-banners.txt");
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
 const DEFAULT_UPLOAD_PASSWORD = process.env.UPLOAD_PASSWORD || "Tigre@12.";
@@ -200,6 +201,43 @@ const writeMediaConfig = (mode, items) => {
   return config;
 };
 
+// Gera a base pública para links do Roku (usa PUBLIC_BASE_URL ou host do request).
+const resolvePublicBaseUrl = (req) => {
+  if (PUBLIC_BASE_URL) return PUBLIC_BASE_URL.replace(/\/+$/, "");
+  if (!req) return "";
+  const host = req.get("x-forwarded-host") || req.get("host");
+  if (!host) return "";
+  const proto = req.get("x-forwarded-proto") || req.protocol || "http";
+  return `${proto}://${host}`.replace(/\/+$/, "");
+};
+
+// Atualiza config/roku-banners.txt com os caminhos de imagens atuais.
+const refreshRokuBanners = (items = [], req) => {
+  const images = (items || []).filter(
+    (item) => item?.path && (item.mime || "").toLowerCase().startsWith("image/")
+  );
+  if (!images.length) return [];
+
+  const baseUrl = resolvePublicBaseUrl(req);
+  if (!baseUrl) throw new Error("Base pública não definida para gerar links do Roku.");
+
+  const lines = images.map((item) => {
+    const fullUrl = new URL(item.path, `${baseUrl}/`);
+    const cacheBust = Math.floor(item.updatedAt || Date.now());
+    fullUrl.searchParams.set("t", cacheBust);
+    return fullUrl.toString();
+  });
+
+  try {
+    fs.writeFileSync(rokuBannersFile, lines.join("\n"));
+  } catch (error) {
+    console.error("Erro ao gravar roku-banners.txt:", error.message);
+    throw error;
+  }
+
+  return lines;
+};
+
 const summarizeFile = (fileName) => {
   const fullPath = path.join(mediaDir, fileName);
   const stats = fs.statSync(fullPath);
@@ -338,8 +376,11 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), (req, res) => 
   try {
     writeMediaConfig(mode, [item]);
     cleanupKeeping([req.file.filename]);
+    refreshRokuBanners([item], req);
   } catch (error) {
-    return res.status(500).json({ ok: false, message: "Erro ao salvar configuração da mídia." });
+    return res
+      .status(500)
+      .json({ ok: false, message: "Erro ao salvar configuração da mídia ou atualizar banners da Roku." });
   }
 
   return res.json({
@@ -369,8 +410,11 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
   try {
     writeMediaConfig("carousel", items);
     cleanupKeeping(files.map((f) => f.filename));
+    refreshRokuBanners(items, req);
   } catch (error) {
-    return res.status(500).json({ ok: false, message: "Erro ao salvar configuração do carrossel." });
+    return res
+      .status(500)
+      .json({ ok: false, message: "Erro ao salvar configuração do carrossel ou atualizar banners da Roku." });
   }
 
   return res.json({
