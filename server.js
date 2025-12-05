@@ -3,12 +3,14 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
+const rokuDir = path.join(mediaDir, "roku");
 const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
@@ -37,6 +39,7 @@ const MIME_BY_EXT = {
 };
 
 fs.mkdirSync(mediaDir, { recursive: true });
+fs.mkdirSync(rokuDir, { recursive: true });
 
 const storageSingle = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, mediaDir),
@@ -250,6 +253,50 @@ const summarizeFile = (fileName) => {
   };
 };
 
+async function generateRokuImages(items = []) {
+  const outputs = [];
+
+  try {
+    const rokuFiles = fs.readdirSync(rokuDir);
+    for (const file of rokuFiles) {
+      try {
+        fs.unlinkSync(path.join(rokuDir, file));
+      } catch (error) {
+        console.warn(`Não foi possível remover ${file} da pasta Roku:`, error.message);
+      }
+    }
+  } catch (error) {
+    console.warn("Não foi possível listar a pasta Roku para limpeza:", error.message);
+  }
+
+  for (const item of items) {
+    if (!item?.path || !(item.mime || "").toLowerCase().startsWith("image/")) continue;
+
+    const originalName = path.basename(item.path);
+    const originalFsPath = path.join(mediaDir, originalName);
+    if (!fs.existsSync(originalFsPath)) continue;
+
+    const ext = (path.extname(originalName) || "").toLowerCase();
+    const base = path.basename(originalName, ext);
+    const rokuFileName = `${base}-roku${ext}`;
+    const rokuFsPath = path.join(rokuDir, rokuFileName);
+
+    await sharp(originalFsPath)
+      .rotate(90, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .toFile(rokuFsPath);
+
+    const stats = fs.statSync(rokuFsPath);
+    outputs.push({
+      path: `/media/roku/${rokuFileName}`,
+      mime: item.mime,
+      size: stats.size,
+      updatedAt: stats.mtimeMs,
+    });
+  }
+
+  return outputs;
+}
+
 const cleanupKeeping = (keepList) => {
   const keepSet = new Set(keepList);
   const files = fs.readdirSync(mediaDir);
@@ -363,7 +410,7 @@ app.get("/api/info", (_req, res) => {
   });
 });
 
-app.post("/api/upload", requireUploadAuth, upload.single("file"), (req, res) => {
+app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ ok: false, message: "Arquivo ausente no campo 'file'." });
   }
@@ -373,10 +420,19 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), (req, res) => 
   const mode = isVideo ? "video" : "image";
 
   const item = summarizeFile(req.file.filename);
+  const items = [item];
+  let rokuItems = [];
+  try {
+    rokuItems = await generateRokuImages(items);
+  } catch (error) {
+    console.error("Erro ao gerar imagens para Roku:", error.message);
+  }
+  const itemsForRoku = rokuItems.length ? rokuItems : items;
+
   try {
     writeMediaConfig(mode, [item]);
     cleanupKeeping([req.file.filename]);
-    refreshRokuBanners([item], req);
+    refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
       .status(500)
@@ -395,7 +451,7 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), (req, res) => 
 });
 
 // Upload de carrossel de imagens (máx. 10).
-app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 10), (req, res) => {
+app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 10), async (req, res) => {
   const files = req.files || [];
   if (!files.length) {
     return res.status(400).json({ ok: false, message: "Nenhum arquivo enviado (campo 'files')." });
@@ -406,11 +462,18 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
   }
 
   const items = files.map((file) => summarizeFile(file.filename));
+  let rokuItems = [];
+  try {
+    rokuItems = await generateRokuImages(items);
+  } catch (error) {
+    console.error("Erro ao gerar imagens para Roku (carrossel):", error.message);
+  }
+  const itemsForRoku = rokuItems.length ? rokuItems : items;
 
   try {
     writeMediaConfig("carousel", items);
     cleanupKeeping(files.map((f) => f.filename));
-    refreshRokuBanners(items, req);
+    refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
       .status(500)
