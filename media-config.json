@@ -2,59 +2,23 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1764435697778-c8c019.jpeg",
+      "path": "/media/carousel-1765036158286-c9aee2.jpeg",
       "mime": "image/jpeg",
-      "size": 348740,
-      "updatedAt": 1764435697783.5957
+      "size": 368026,
+      "updatedAt": 1765036158291.8462
     },
     {
-      "path": "/media/carousel-1764435697783-08b923.jpeg",
+      "path": "/media/carousel-1765036158292-3f3ff5.jpeg",
       "mime": "image/jpeg",
-      "size": 398454,
-      "updatedAt": 1764435697788.5957
+      "size": 326419,
+      "updatedAt": 1765036158295.846
     },
     {
-      "path": "/media/carousel-1764435697788-e75db4.jpeg",
+      "path": "/media/carousel-1765036158296-7aa18d.jpeg",
       "mime": "image/jpeg",
-      "size": 402721,
-      "updatedAt": 1764435697793.5957
-    },
-    {
-      "path": "/media/carousel-1764435697792-61489f.jpeg",
-      "mime": "image/jpeg",
-      "size": 369204,
-      "updatedAt": 1764435697795.5957
-    },
-    {
-      "path": "/media/carousel-1764435697795-e65dfa.jpeg",
-      "mime": "image/jpeg",
-      "size": 410951,
-      "updatedAt": 1764435697797.5955
-    },
-    {
-      "path": "/media/carousel-1764435697797-1170ef.jpeg",
-      "mime": "image/jpeg",
-      "size": 399443,
-      "updatedAt": 1764435697799.5955
-    },
-    {
-      "path": "/media/carousel-1764435697799-0d3f77.jpeg",
-      "mime": "image/jpeg",
-      "size": 418026,
-      "updatedAt": 1764435697800.5955
-    },
-    {
-      "path": "/media/carousel-1764435697801-f411d7.jpeg",
-      "mime": "image/jpeg",
-      "size": 408849,
-      "updatedAt": 1764435697802.5955
-    },
-    {
-      "path": "/media/carousel-1764435697802-4e2d1d.jpeg",
-      "mime": "image/jpeg",
-      "size": 379088,
-      "updatedAt": 1764435697803.5955
+      "size": 303325,
+      "updatedAt": 1765036158295.846
     }
   ],
-  "updatedAt": 1764435697805
+  "updatedAt": 1765036158365
 }

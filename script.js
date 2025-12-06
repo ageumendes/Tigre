@@ -55,6 +55,28 @@ const setStatus = (message, isError = false) => {
   statusLabel.classList.toggle("error", isError);
 };
 
+const applyRoundedFavicon = () => {
+  const link = document.querySelector('link[rel="icon"]');
+  if (!link || !link.href) return;
+  const img = new Image();
+  img.decoding = "async";
+  img.onload = () => {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, 0, 0, size, size);
+    link.href = canvas.toDataURL("image/png");
+  };
+  img.src = link.href;
+};
+
 const setUploadMessage = (message, isError = false) => {
   if (!uploadStatus) return;
   uploadStatus.textContent = message;
@@ -588,6 +610,7 @@ const handlePromoListClick = (event) => {
 };
 
 const init = () => {
+  applyRoundedFavicon();
   renderPlaceholder();
   resetUpload();
   loadMedia();
