@@ -1,8 +1,41 @@
 const API_BASE = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
 const viewerArea = document.getElementById("viewer-area");
+const viewerMedia = document.getElementById("viewer-media");
+const storyProgress = document.getElementById("story-progress");
 const viewerStatus = document.getElementById("viewer-status");
 const downloadButton = document.getElementById("download-button");
 const shareButton = document.getElementById("share-button");
+const prevNav = document.querySelector(".story-nav.prev");
+const nextNav = document.querySelector(".story-nav.next");
+const STORY_DURATION = 6000;
+
+let mediaItems = [];
+let mediaMode = "image";
+let storyIndex = 0;
+let storyTimer = null;
+
+const applyRoundedFavicon = () => {
+  const link = document.querySelector('link[rel="icon"]');
+  if (!link || !link.href) return;
+  const img = new Image();
+  img.decoding = "async";
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, 0, 0, size, size);
+    link.href = canvas.toDataURL("image/png");
+  };
+  img.src = link.href;
+};
 
 const setStatus = (message, isError = false) => {
   if (!viewerStatus) return;
@@ -21,85 +54,192 @@ const setStatus = (message, isError = false) => {
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 
-const renderCarousel = (items) => {
-  if (!viewerArea) return;
-  viewerArea.innerHTML = "";
-  if (!items?.length) {
-    const empty = document.createElement("div");
-    empty.className = "placeholder";
-    empty.textContent = "Nenhuma imagem no carrossel.";
-    viewerArea.appendChild(empty);
-    return;
+const clearStoryTimer = () => {
+  if (storyTimer) {
+    clearTimeout(storyTimer);
+    storyTimer = null;
   }
-
-  let index = 0;
-  const main = document.createElement("img");
-  main.alt = "Carrossel";
-  main.className = "viewer-carousel-main";
-
-  const setImage = (i) => {
-    index = (i + items.length) % items.length;
-    main.src = items[index].url || items[index].path;
-  };
-  setImage(0);
-
-  const prev = document.createElement("button");
-  prev.className = "ghost-button small";
-  prev.textContent = "Anterior";
-  prev.addEventListener("click", () => setImage(index - 1));
-
-  const next = document.createElement("button");
-  next.className = "ghost-button small";
-  next.textContent = "Próximo";
-  next.addEventListener("click", () => setImage(index + 1));
-
-  const controls = document.createElement("div");
-  controls.className = "viewer-actions";
-  controls.appendChild(prev);
-  controls.appendChild(next);
-
-  viewerArea.appendChild(main);
-  viewerArea.appendChild(controls);
 };
 
-const renderMedia = (mode, url, items) => {
-  if (!viewerArea) return;
-  viewerArea.innerHTML = "";
+const setMultipleState = (hasMultiple) => {
+  if (viewerArea) viewerArea.classList.toggle("has-multiple", hasMultiple);
+};
 
-  if (mode === "carousel") {
-    renderCarousel(items);
+const renderProgressBars = (count) => {
+  if (!storyProgress) return;
+  storyProgress.innerHTML = "";
+  const shouldShow = count && count > 1;
+  storyProgress.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) return;
+  for (let i = 0; i < count; i += 1) {
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill";
+    bar.appendChild(fill);
+    storyProgress.appendChild(bar);
+  }
+};
+
+const updateProgressBars = (count, activeIndex, duration = STORY_DURATION) => {
+  if (!storyProgress || !count || count < 1) return;
+  const fills = Array.from(storyProgress.querySelectorAll(".bar-fill"));
+  fills.forEach((fill, idx) => {
+    fill.style.transition = "none";
+    if (idx < activeIndex) {
+      fill.style.width = "100%";
+    } else if (idx === activeIndex) {
+      if (duration <= 0) {
+        fill.style.width = "100%";
+        return;
+      }
+      fill.style.width = "0%";
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          fill.style.transition = `width ${duration}ms linear`;
+          fill.style.width = "100%";
+        });
+      });
+    } else {
+      fill.style.width = "0%";
+    }
+  });
+};
+
+const scheduleAutoAdvance = (count, duration = STORY_DURATION) => {
+  clearStoryTimer();
+  if (!count || count < 2 || mediaMode === "video") return;
+  storyTimer = window.setTimeout(() => showMediaAt(storyIndex + 1), duration);
+};
+
+const isVideoItem = (item) =>
+  item?.kind === "video" || (item?.mime && item.mime.startsWith("video/")) || mediaMode === "video";
+
+const renderImage = (item) => {
+  if (!viewerMedia) return;
+  viewerMedia.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = item.url || item.path;
+  img.alt = "Mídia atual";
+  viewerMedia.appendChild(img);
+};
+
+const renderVideo = (item) => {
+  if (!viewerMedia) return;
+  viewerMedia.innerHTML = "";
+  const video = document.createElement("video");
+  video.src = item.url || item.path;
+  video.controls = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.preload = "auto";
+  video.poster = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+  viewerMedia.appendChild(video);
+};
+
+const updateDownloadLink = (item) => {
+  if (!downloadButton || !item) return;
+  downloadButton.href = item.url || item.path || "#";
+  const filename = (item.path || "").split("/").pop() || "midia";
+  downloadButton.download = filename;
+};
+
+const getCurrentItem = () => mediaItems[storyIndex] || mediaItems[0];
+
+const downloadCurrentItem = (event) => {
+  if (event) event.preventDefault();
+  const item = getCurrentItem();
+  if (!item) {
+    setStatus("Nenhuma mídia para baixar.", true);
     return;
   }
+  const url = item.url || item.path;
+  if (!url) {
+    setStatus("Não foi possível iniciar o download.", true);
+    return;
+  }
+  const filename = (item.path || "").split("/").pop() || "midia";
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setStatus("Baixando mídia atual...");
+};
 
-  if (mode === "video") {
-    const video = document.createElement("video");
-    video.src = url;
-    video.controls = true;
-    video.playsInline = true;
-    video.autoplay = true;
-    video.preload = "auto";
-    video.poster = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
-    viewerArea.appendChild(video);
+const deriveKind = (item, fallbackMode) => {
+  if (item?.kind) return item.kind;
+  if (item?.mime && item.mime.startsWith("video/")) return "video";
+  if (fallbackMode === "video") return "video";
+  return "image";
+};
+
+const showMediaAt = (index) => {
+  if (!mediaItems.length) return;
+  const count = mediaItems.length;
+  const safeIndex = ((index % count) + count) % count;
+  storyIndex = safeIndex;
+  const item = mediaItems[safeIndex];
+  const videoItem = isVideoItem(item);
+  clearStoryTimer();
+
+  if (videoItem) {
+    renderVideo(item);
   } else {
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "Mídia atual";
-    viewerArea.appendChild(img);
+    renderImage(item);
   }
+
+  setMultipleState(count > 1);
+  renderProgressBars(count);
+  const duration = videoItem ? 0 : STORY_DURATION;
+  updateProgressBars(count, storyIndex, duration);
+  if (!videoItem) {
+    scheduleAutoAdvance(count, duration);
+  }
+  updateDownloadLink(item);
+  setStatus(count > 1 ? "Pronto. Arraste ou use as setas para mudar." : "Pronto");
 };
 
-const fetchLatest = async () => {
-  const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
-  if (!response.ok) return null;
-  const data = await response.json();
-  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
-  const items = (data.items || []).map((item) => ({
-    ...item,
-    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
-  }));
-  const primary = items[0] || data;
-  const url = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : null;
-  return { ...data, mode, items, primary, url };
+const loadMedia = async () => {
+  setStatus("Carregando mídia...");
+  clearStoryTimer();
+
+  try {
+    const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Nenhuma mídia disponível.");
+    const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+    const items = (data.items || []).map((item) => ({
+      ...item,
+      url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+      kind: deriveKind(item, mode),
+    }));
+    if (!items.length && data.path) {
+      items.push({
+        path: data.path,
+        url: `${buildUrl(data.path)}?t=${Date.now()}`,
+        mime: data.mime,
+        size: data.size,
+        updatedAt: data.updatedAt,
+        kind: deriveKind(data, mode),
+      });
+    }
+    mediaMode = mode;
+    mediaItems = items;
+    if (!mediaItems.length) {
+      setStatus("Nenhuma mídia disponível.", true);
+      setMultipleState(false);
+      renderProgressBars(0);
+      return;
+    }
+    showMediaAt(0);
+    const shareUrl = window.location.origin + window.location.pathname;
+    setupShare(shareUrl);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Nenhuma mídia disponível.", true);
+  }
 };
 
 const copyToClipboard = async (text) => {
@@ -126,7 +266,7 @@ const copyToClipboard = async (text) => {
 
 const setupShare = (shareUrl) => {
   if (!shareButton) return;
-  shareButton.addEventListener("click", async () => {
+  shareButton.onclick = async () => {
     try {
       if (navigator.share) {
         await navigator.share({
@@ -141,31 +281,38 @@ const setupShare = (shareUrl) => {
     } catch (error) {
       setStatus("Não foi possível compartilhar.", true);
     }
+  };
+};
+
+const addSwipeNavigation = () => {
+  if (!viewerArea) return;
+  let startX = null;
+  viewerArea.addEventListener("pointerdown", (event) => {
+    startX = event.clientX;
+  });
+  viewerArea.addEventListener("pointerup", (event) => {
+    if (startX === null) return;
+    const delta = event.clientX - startX;
+    startX = null;
+    if (Math.abs(delta) > 40) {
+      showMediaAt(storyIndex + (delta > 0 ? -1 : 1));
+    }
+  });
+  viewerArea.addEventListener("pointerleave", () => {
+    startX = null;
+  });
+  viewerArea.addEventListener("pointercancel", () => {
+    startX = null;
   });
 };
 
-const init = async () => {
-  setStatus("Carregando mídia...");
-  const data = await fetchLatest();
-
-  if (!data?.ok) {
-    setStatus(data?.message || "Nenhuma mídia disponível.", true);
-    return;
-  }
-
-  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
-  const mediaUrl = data.url || (data.path ? `${buildUrl(data.path)}?t=${Date.now()}` : "");
-  renderMedia(mode, mediaUrl, data.items);
-  setStatus("Pronto");
-
-  const downloadName = (data.path || data.primary?.path || "").split("/").pop() || "latest";
-  if (downloadButton) {
-    downloadButton.href = mediaUrl;
-    downloadButton.download = downloadName;
-  }
-
-  const shareUrl = window.location.origin + window.location.pathname;
-  setupShare(shareUrl);
+const init = () => {
+  applyRoundedFavicon();
+  addSwipeNavigation();
+  if (prevNav) prevNav.addEventListener("click", () => showMediaAt(storyIndex - 1));
+  if (nextNav) nextNav.addEventListener("click", () => showMediaAt(storyIndex + 1));
+  if (downloadButton) downloadButton.addEventListener("click", downloadCurrentItem);
+  loadMedia();
 };
 
 window.addEventListener("DOMContentLoaded", init);

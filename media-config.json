@@ -2,23 +2,29 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1765036158286-c9aee2.jpeg",
+      "path": "/media/carousel-1765198719130-80d3bf.jpeg",
       "mime": "image/jpeg",
-      "size": 368026,
-      "updatedAt": 1765036158291.8462
+      "size": 169845,
+      "updatedAt": 1765198719137.7258
     },
     {
-      "path": "/media/carousel-1765036158292-3f3ff5.jpeg",
+      "path": "/media/carousel-1765198719134-27dd9b.jpeg",
       "mime": "image/jpeg",
-      "size": 326419,
-      "updatedAt": 1765036158295.846
+      "size": 184337,
+      "updatedAt": 1765198719140.7258
     },
     {
-      "path": "/media/carousel-1765036158296-7aa18d.jpeg",
+      "path": "/media/carousel-1765198719140-1e010d.jpeg",
       "mime": "image/jpeg",
-      "size": 303325,
-      "updatedAt": 1765036158295.846
+      "size": 165485,
+      "updatedAt": 1765198719146.726
+    },
+    {
+      "path": "/media/carousel-1765198719143-640f82.jpeg",
+      "mime": "image/jpeg",
+      "size": 190530,
+      "updatedAt": 1765198719147.7263
     }
   ],
-  "updatedAt": 1765036158365
+  "updatedAt": 1765198719439
 }

@@ -19,6 +19,29 @@ const setStatus = (el, message, isError = false) => {
   el.classList.toggle("error", !!isError);
 };
 
+const applyRoundedFavicon = () => {
+  const link = document.querySelector('link[rel="icon"]');
+  if (!link || !link.href) return;
+  const img = new Image();
+  img.decoding = "async";
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, 0, 0, size, size);
+    link.href = canvas.toDataURL("image/png");
+  };
+  img.src = link.href;
+};
+
 const formatNumber = (value) => new Intl.NumberFormat("pt-BR").format(value || 0);
 
 const formatDateTime = (timestamp) => {
@@ -145,6 +168,7 @@ const loadRecent = async () => {
 };
 
 const init = async () => {
+  applyRoundedFavicon();
   try {
     await loadSummary();
   } catch (error) {

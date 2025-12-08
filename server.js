@@ -542,14 +542,14 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
 });
 
 // Upload de carrossel de imagens (máx. 10).
-app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 10), async (req, res) => {
+app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 100), async (req, res) => {
   const files = req.files || [];
   if (!files.length) {
     return res.status(400).json({ ok: false, message: "Nenhum arquivo enviado (campo 'files')." });
   }
 
-  if (files.length > 10) {
-    return res.status(400).json({ ok: false, message: "Envie no máximo 10 imagens para o carrossel." });
+  if (files.length > 100) {
+    return res.status(400).json({ ok: false, message: "Envie no máximo 100 imagens para o carrossel." });
   }
 
   const items = files.map((file) => summarizeFile(file.filename));
