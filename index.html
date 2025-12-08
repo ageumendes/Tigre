@@ -13,33 +13,21 @@
 <body>
   <div class="page">
     <header class="hero">
-      <div class="pill">Wi-Fi Supermercado Tigre</div>
-      <h1>Tigre Promoções</h1>
-      <p>Troque o arquivo na pasta <code>media/</code>, mantenha o nome e publique. Agora você também pode testar e enviar um novo arquivo de mídia (vídeo MP4 ou imagem JPG/PNG/WebP) pelo navegador e ver em tela cheia.</p>
+      <h2 class="pill">Tigre Promoções</h2>
     </header>
 
-    <main class="grid">
-      <section class="card media-card">
-        <div class="card-head">
-          <div>
-            <p class="eyebrow">Visualização</p>
-            <h2>Arquivo atual</h2>
+    <main class="grid single-column">
+      <div class="status-panel">
+        <div class="status-bar">
+          <div class="actions-group" style="display:none">
+            <button id="refresh-button" class="ghost-button small">Atualizar mídias</button>
+            <button id="view-live-button" class="ghost-button primary small" disabled>Ver em tela cheia</button>
+            <a class="ghost-button small" href="captive.html" target="_blank" rel="noopener">Página pública</a>
           </div>
-          <div class="actions">
-            <button id="view-live-button" class="ghost-button" disabled>Ver em tela cheia</button>
-            <button id="refresh-button" class="ghost-button">Recarregar mídia</button>
-            <a class="ghost-button primary" href="captive.html" target="_blank" rel="noopener">Abrir página de visualização</a>
-          </div>
+          <div id="status" class="status"></div>
         </div>
-
-        <div id="media-area" class="media-area">
-          <div class="placeholder">
-            <p>Adicione um arquivo na pasta <code>media/</code> com nome fixo (ex.: <code>latest.mp4</code> ou <code>latest-image.jpg</code>).</p>
-            <small>O botão acima força a atualização sem cache.</small>
-          </div>
-        </div>
-        <div id="status" class="status">Procurando arquivo...</div>
-      </section>
+        <div id="media-stories" class="media-stories"></div>
+      </div>
 
       <section class="card upload-card">
         <div class="card-head">
@@ -50,44 +38,43 @@
           <span class="badge">local</span>
         </div>
 
-        <div class="upload-area">
-          <div class="promo-grid">
-            <label>
-              Tipo de mídia
-              <select id="media-type-select" class="ghost-select">
-                <option value="video">Vídeo único</option>
-                <option value="image">Imagem única</option>
-                <option value="carousel">Carrossel de imagens</option>
-              </select>
-            </label>
-          </div>
-          <label for="upload-input" class="upload-label">
-            <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*">
-            <div class="upload-drop">
-              <p class="upload-title">Arraste um arquivo ou clique para procurar</p>
-              <p class="upload-subtitle">Aceita vídeo MP4 ou imagens (JPG, PNG, WebP). Para carrossel, selecione múltiplas imagens.</p>
-              <button id="choose-upload-button" type="button" class="ghost-button small">Escolher arquivo</button>
+        <div class="upload-split">
+          <div class="upload-left">
+            <div class="upload-area">
+              <div class="promo-grid">
+                <label>
+                  Tipo de mídia
+                  <select id="media-type-select" class="ghost-select">
+                    <option value="video">Vídeo único</option>
+                    <option value="image">Imagem única</option>
+                    <option value="carousel">Varias imagens</option>
+                  </select>
+                </label>
+              </div>
+              <label for="upload-input" class="upload-label">
+                <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*">
+                <div class="upload-drop">
+                  <p class="upload-title">Arraste um arquivo ou clique para procurar</p>
+                  <p class="upload-subtitle">Aceita vídeo MP4 ou imagens (JPG, PNG, WebP). Para carrossel, selecione múltiplas imagens.</p>
+                  <button id="choose-upload-button" type="button" class="ghost-button small">Escolher arquivo</button>
+                </div>
+              </label>
+              <div id="upload-status" class="status">Nenhum arquivo selecionado.</div>
             </div>
-          </label>
-          <div id="upload-status" class="status">Nenhum arquivo selecionado.</div>
-        </div>
-
-        <div id="upload-preview" class="media-area compact">
-          <div class="placeholder">
-            <p>Selecione um arquivo para pré-visualizar aqui.</p>
-            <small>Depois clique em “Enviar e publicar” para gravar no backend.</small>
           </div>
-        </div>
-
-        <div class="upload-actions">
-          <div class="hint">
-            <p>1) Escolha o arquivo que quer publicar (vídeo ou imagem, ou várias imagens para carrossel). 2) Clique em “Enviar e publicar” para gravar no backend. 3) Compartilhe o link; quem abrir verá sempre a versão mais recente.</p>
-            <p>Use “Ver em tela cheia” para conferir como ficará.</p>
-            <p>Para o splash do roteador, a página cativa consulta <code>/api/info</code> e usa <code>/media/...</code> conforme o modo selecionado.</p>
-          </div>
-          <div class="actions">
-            <button id="view-upload-button" class="ghost-button" disabled>Ver em tela cheia</button>
-            <button id="publish-button" class="ghost-button primary" disabled>Enviar e publicar</button>
+          <div class="upload-right">
+            <div id="upload-preview" class="media-area compact scrollable">
+              <div class="placeholder">
+                <p>Selecione um arquivo para pré-visualizar aqui.</p>
+                <small>Depois clique em “Enviar e publicar” para gravar no backend.</small>
+              </div>
+            </div>
+            <div class="upload-actions">
+              <div class="actions">
+                <button id="view-upload-button" class="ghost-button" disabled>Ver em tela cheia</button>
+                <button id="publish-button" class="ghost-button primary" disabled>Enviar e publicar</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -155,9 +142,9 @@
 
     <footer class="footer">
       <p style="display:none">Quer outro fluxo? Ajuste o nome alvo em <code>script.js</code> e mantenha um único arquivo ativo na pasta <code>media/</code>.</p>
-      <div class="actions">
+      <!--<div class="actions">
         <a class="ghost-button primary" href="dashboard.html" target="_blank" rel="noopener">Ver Dashboard</a>
-      </div>
+      </div>-->
     </footer>
   </div>
 
@@ -165,7 +152,10 @@
     <div class="viewer-backdrop"></div>
     <div class="viewer-content">
       <button id="close-viewer" class="close-button" aria-label="Fechar">×</button>
+      <div id="story-progress" class="story-progress"></div>
       <div id="viewer-slot" class="viewer-slot"></div>
+      <button class="story-nav prev" aria-label="Story anterior"></button>
+      <button class="story-nav next" aria-label="Próximo story"></button>
     </div>
   </div>
 
@@ -187,6 +177,14 @@
     <div class="status-bubble">
       <div id="status-icon" class="status-icon">✓</div>
       <div id="status-message">Tudo certo</div>
+    </div>
+  </div>
+
+  <div id="loading-overlay" class="full-overlay hidden" aria-live="polite">
+    <div class="overlay-backdrop"></div>
+    <div class="loading-card">
+      <div class="spinner big" aria-hidden="true"></div>
+      <p id="loading-message">Processando...</p>
     </div>
   </div>
 

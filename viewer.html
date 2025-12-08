@@ -6,13 +6,19 @@
   <title>Visualização | Mídia única</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="icon" type="image/png" href="images/icon.png">
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="viewer-page">
   
   <main class="viewer-stage">
-    <div id="viewer-area" class="viewer-area"></div>
+    <div id="viewer-area" class="viewer-area">
+      <div id="story-progress" class="story-progress hidden"></div>
+      <div id="viewer-media" class="viewer-media"></div>
+      <button class="story-nav prev" aria-label="Mídia anterior"></button>
+      <button class="story-nav next" aria-label="Próxima mídia"></button>
+    </div>
     <div id="viewer-status" class="status">Carregando mídia...</div>
     <div class="viewer-actions">
       

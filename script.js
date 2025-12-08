@@ -1,10 +1,12 @@
 const API_BASE = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
 const mediaArea = document.getElementById("media-area");
 const statusLabel = document.getElementById("status");
+const mediaStories = document.getElementById("media-stories");
 const refreshButton = document.getElementById("refresh-button");
 const viewLiveButton = document.getElementById("view-live-button");
 
 const uploadInput = document.getElementById("upload-input");
+const uploadLabel = document.querySelector(".upload-label");
 const chooseUploadButton = document.getElementById("choose-upload-button");
 const uploadStatus = document.getElementById("upload-status");
 const uploadPreview = document.getElementById("upload-preview");
@@ -18,6 +20,11 @@ const passwordCancel = document.getElementById("password-cancel");
 const statusOverlay = document.getElementById("status-overlay");
 const statusIcon = document.getElementById("status-icon");
 const statusMessage = document.getElementById("status-message");
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingMessage = document.getElementById("loading-message");
+let storyTimer = null;
+let storyIndex = 0;
+let storyDuration = 6000;
 
 const viewerOverlay = document.getElementById("viewer-overlay");
 const viewerSlot = document.getElementById("viewer-slot");
@@ -48,6 +55,53 @@ let promoEditingId = null;
 let promoCache = [];
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+const ACCEPT_BY_MODE = {
+  video: "video/mp4",
+  image: "image/*",
+  carousel: "image/*",
+};
+const kindFromMime = (mime) => (mime && mime.startsWith("video/") ? "video" : "image");
+const formatBytes = (bytes) => {
+  if (!bytes && bytes !== 0) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(1)} ${units[unit]}`;
+};
+const formatDateTime = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+const normalizeMediaPayload = (data) => {
+  if (!data) return null;
+  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+  const items = (data.items || []).map((item) => ({
+    ...item,
+    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+    kind: kindFromMime(item.mime),
+  }));
+  const primary = items[0] || data;
+  const mediaUrl = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : data.url || "";
+  const kind = mode === "video" ? "video" : "image";
+  return {
+    ...data,
+    url: mediaUrl,
+    kind,
+    mode,
+    items,
+  };
+};
 
 const setStatus = (message, isError = false) => {
   if (!statusLabel) return;
@@ -135,7 +189,10 @@ const setPromoMessage = (message, isError = false) => {
 
 const updateMediaType = () => {
   selectedMediaType = mediaTypeSelect?.value || "video";
-  if (uploadInput) uploadInput.multiple = selectedMediaType === "carousel";
+  if (uploadInput) {
+    uploadInput.multiple = selectedMediaType === "carousel";
+    uploadInput.accept = ACCEPT_BY_MODE[selectedMediaType] || ALLOWED_UPLOAD_MIMES.join(",");
+  }
   resetUpload();
   const hint =
     selectedMediaType === "carousel"
@@ -203,50 +260,180 @@ const renderMediaInto = (target, candidate) => {
   }
 };
 
+const renderStories = (media) => {
+  if (!mediaStories) return;
+  clearStoryAutoplay();
+  mediaStories.innerHTML = "";
+  const items = media?.items?.length ? media.items : media ? [media] : [];
+  mediaStories.classList.toggle("centered", items.length === 1);
+
+  if (!items.length) {
+    mediaStories.innerHTML = `
+      <div class="placeholder">
+        <p>Nenhuma mídia publicada.</p>
+        <small>Envie um arquivo para aparecer aqui.</small>
+      </div>
+    `;
+    return;
+  }
+
+  items.forEach((item, index) => {
+    const url = item.url || (item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "");
+    const kind = kindFromMime(item.mime || media?.mime);
+    const label = item.path
+      ? item.path.replace("/media/", "")
+      : kind === "video"
+      ? `Vídeo ${index + 1}`
+      : `Imagem ${index + 1}`;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "story";
+    button.dataset.kind = kind;
+    if (url) button.style.setProperty("--thumb", `url('${url}')`);
+    button.innerHTML = `
+      <span class="story-ring">
+        <span class="story-thumb" aria-hidden="true"></span>
+      </span>
+    `;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.dataset.index = index.toString();
+    button.addEventListener("click", () => {
+      openStoryAt(index);
+    });
+    mediaStories.appendChild(button);
+  });
+  setActiveStory(0);
+  renderStoryProgress(items.length);
+};
+
+const showStoriesLoading = () => {
+  if (!mediaStories) return;
+  mediaStories.innerHTML = `
+    <div class="spinner" role="status" aria-label="Carregando mídias"></div>
+  `;
+};
+
+const setActiveStory = (index) => {
+  const buttons = Array.from(mediaStories?.querySelectorAll(".story") || []);
+  buttons.forEach((btn, idx) => btn.classList.toggle("story-active", idx === index));
+};
+
+const renderStoryProgress = (count) => {
+  const container = document.getElementById("story-progress");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!count || count < 2) return;
+  for (let i = 0; i < count; i += 1) {
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill";
+    bar.appendChild(fill);
+    container.appendChild(bar);
+  }
+};
+
+const updateProgressBars = (count, activeIndex) => {
+  const container = document.getElementById("story-progress");
+  if (!container) return;
+  const bars = Array.from(container.querySelectorAll(".bar-fill"));
+  bars.forEach((fill, idx) => {
+    if (idx < activeIndex) {
+      fill.style.width = "100%";
+    } else if (idx === activeIndex) {
+      fill.style.width = "0%";
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          fill.style.transition = `width ${storyDuration}ms linear`;
+          fill.style.width = "100%";
+        });
+      });
+    } else {
+      fill.style.width = "0%";
+      fill.style.transition = "none";
+    }
+  });
+};
+
+const clearStoryAutoplay = () => {
+  if (storyTimer) {
+    clearTimeout(storyTimer);
+    storyTimer = null;
+  }
+};
+
+const getStoryItems = () => {
+  if (!currentLiveMedia) return [];
+  const items = currentLiveMedia.items?.length ? currentLiveMedia.items : [currentLiveMedia];
+  return items.map((item) => ({
+    ...item,
+    url: item.url || (item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : ""),
+    kind: item.kind || kindFromMime(item.mime || currentLiveMedia.mime),
+  }));
+};
+
+const openStoryAt = (index) => {
+  const items = getStoryItems();
+  if (!items.length) return;
+  const safeIndex = ((index % items.length) + items.length) % items.length;
+  storyIndex = safeIndex;
+  const item = items[safeIndex];
+  openViewer({ url: item.url, kind: item.kind, mode: item.kind });
+  setActiveStory(safeIndex);
+  updateProgressBars(items.length, safeIndex);
+  clearStoryAutoplay();
+  if (items.length > 1) {
+    storyTimer = setTimeout(() => openStoryAt(safeIndex + 1), storyDuration);
+  }
+};
+
+const showLoadingOverlay = (message = "Processando...") => {
+  if (!loadingOverlay || !loadingMessage) return;
+  loadingMessage.textContent = message;
+  loadingOverlay.classList.remove("hidden");
+};
+
+const hideLoadingOverlay = () => {
+  if (!loadingOverlay) return;
+  loadingOverlay.classList.add("hidden");
+};
+
 const fetchLatestInfo = async () => {
   const url = buildUrl(`/api/info?t=${Date.now()}`);
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) return null;
   const data = await response.json();
-  const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
-  const items = (data.items || []).map((item) => ({
-    ...item,
-    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
-  }));
-  const primary = items[0] || data;
-  const mediaUrl = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : null;
-  const kind = mode === "video" ? "video" : "image";
-  return {
-    url: mediaUrl,
-    kind,
-    mode,
-    path: primary.path,
-    mime: primary.mime,
-    size: primary.size,
-    updatedAt: primary.updatedAt,
-    items,
-  };
+  return normalizeMediaPayload(data);
 };
 
-const loadMedia = async () => {
+const loadMedia = async (options = {}) => {
+  const { preserveStories = false } = options;
   setStatus("Procurando arquivo...");
   if (viewLiveButton) viewLiveButton.disabled = true;
+  if (!preserveStories) showStoriesLoading();
 
   try {
     currentLiveMedia = await fetchLatestInfo();
   } catch (error) {
     setStatus("Erro ao contactar o backend. Verifique API_BASE em config.js.", true);
     renderPlaceholder();
+    if (!preserveStories) renderStories(null);
     return;
   }
 
   if (!currentLiveMedia) {
-    renderPlaceholder();
-    setStatus("Nenhuma mídia publicada ainda.", true);
+    if (!preserveStories) {
+      renderPlaceholder();
+      setStatus("Nenhuma mídia publicada ainda.", true);
+      renderStories(null);
+    }
     return;
   }
 
   renderMediaInto(mediaArea, currentLiveMedia);
+  renderStories(currentLiveMedia);
   const name = currentLiveMedia.path ? currentLiveMedia.path.replace("/media/", "") : "mídia atual";
   const modeLabel =
     currentLiveMedia.mode === "carousel"
@@ -254,7 +441,13 @@ const loadMedia = async () => {
       : currentLiveMedia.mode === "image"
       ? "Imagem"
       : "Vídeo";
-  setStatus(`Mostrando ${name} — ${modeLabel}`);
+  const count = currentLiveMedia.items?.length || (currentLiveMedia.url ? 1 : 0);
+  const updatedLabel = formatDateTime(currentLiveMedia.updatedAt) || "há pouco";
+  const sizeLabel = formatBytes(currentLiveMedia.size);
+  const summaryParts = [`${count} mídia${count === 1 ? "" : "s"} publicadas`, modeLabel];
+  if (sizeLabel) summaryParts.push(sizeLabel);
+  summaryParts.push(`Atualizado ${updatedLabel}`);
+  setStatus(summaryParts.join(" • "));
   if (viewLiveButton) viewLiveButton.disabled = false;
 };
 
@@ -296,16 +489,22 @@ const showUploadSelection = (files) => {
     if (uploadPreview) {
       uploadPreview.innerHTML = "";
       const grid = document.createElement("div");
-      grid.className = "promo-grid";
-      currentUpload.items.forEach((item) => {
+      grid.className = "carousel-preview";
+      currentUpload.items.forEach((item, idx) => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "preview-item";
         const img = document.createElement("img");
         img.src = item.url;
         img.alt = item.name || "Imagem do carrossel";
-        img.style.borderRadius = "10px";
-        img.style.objectFit = "cover";
-        img.style.height = "120px";
-        img.style.width = "100%";
-        grid.appendChild(img);
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "remove-thumb";
+        removeButton.innerHTML = "×";
+        removeButton.title = "Remover esta mídia";
+        removeButton.addEventListener("click", () => removeUploadItem(idx));
+        wrapper.appendChild(img);
+        wrapper.appendChild(removeButton);
+        grid.appendChild(wrapper);
       });
       uploadPreview.appendChild(grid);
     }
@@ -327,58 +526,143 @@ const showUploadSelection = (files) => {
   currentUpload = { url: uploadUrl, kind, mode, name: file.name, file };
   const prettySize = (file.size / (1024 * 1024)).toFixed(2);
   setUploadMessage(`Selecionado: ${file.name} (${prettySize} MB)`);
-  renderMediaInto(uploadPreview, currentUpload);
+  if (uploadPreview) {
+    uploadPreview.innerHTML = "";
+    const wrapper = document.createElement("div");
+    wrapper.className = "preview-item";
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "remove-thumb";
+    removeButton.innerHTML = "×";
+    removeButton.title = "Remover esta mídia";
+    removeButton.addEventListener("click", () => resetUpload());
+
+    if (kind === "video") {
+      const video = document.createElement("video");
+      video.src = currentUpload.url;
+      video.controls = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      video.poster = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+      wrapper.appendChild(video);
+    } else {
+      const img = document.createElement("img");
+      img.src = currentUpload.url;
+      img.alt = currentUpload.name || "Pré-visualização";
+      wrapper.appendChild(img);
+    }
+    wrapper.appendChild(removeButton);
+    uploadPreview.appendChild(wrapper);
+  }
 
   if (viewUploadButton) viewUploadButton.disabled = false;
   if (publishButton) publishButton.disabled = false;
 };
 
-const handleUploadChange = (event) => {
-  const files = Array.from(event.target.files || []);
-  if (!files.length) {
-    resetUpload();
-    return;
-  }
-
-  const mode = selectedMediaType;
-  const isVideoMode = mode === "video";
-  const isCarousel = mode === "carousel";
-
-  if (isVideoMode) {
-    const [file] = files;
-    if (!file.type.startsWith("video/")) {
+const removeUploadItem = (index) => {
+  if (!currentUpload) return;
+  if (currentUpload.mode === "carousel") {
+    if (!Array.isArray(currentUpload.files)) return;
+    const files = [...currentUpload.files];
+    const urls = [...uploadUrls];
+    const removedUrl = urls[index];
+    files.splice(index, 1);
+    urls.splice(index, 1);
+    if (removedUrl) URL.revokeObjectURL(removedUrl);
+    if (!files.length) {
       resetUpload();
-      setUploadMessage("Selecione um arquivo de vídeo MP4 para o modo Vídeo.", true);
       return;
     }
-    showUploadSelection([file]);
-    return;
-  }
-
-  if (isCarousel) {
-    if (files.length > 10) {
-      resetUpload();
-      setUploadMessage("Envie no máximo 10 imagens para o carrossel.", true);
-      return;
-    }
-    const invalid = files.some((file) => !file.type.startsWith("image/"));
-    if (invalid) {
-      resetUpload();
-      setUploadMessage("O carrossel aceita apenas imagens (JPG, PNG, WebP).", true);
-      return;
-    }
+    currentUpload.files = files;
+    uploadUrls = urls;
     showUploadSelection(files);
     return;
   }
+  resetUpload();
+};
 
-  // Modo imagem única
-  const [file] = files;
-  if (!file.type.startsWith("image/")) {
-    resetUpload();
-    setUploadMessage("Selecione uma imagem (JPG, PNG, WebP) para o modo Imagem.", true);
-    return;
+const handleUploadChange = (event) => {
+  showLoadingOverlay("Carregando seleção...");
+  try {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) {
+      resetUpload();
+      return;
+    }
+
+    const mode = selectedMediaType;
+    const isVideoMode = mode === "video";
+    const isCarousel = mode === "carousel";
+
+    if (isVideoMode) {
+      const [file] = files;
+      if (!file.type.startsWith("video/")) {
+        resetUpload();
+        setUploadMessage("Selecione um arquivo de vídeo MP4 para o modo Vídeo.", true);
+        return;
+      }
+      showUploadSelection([file]);
+      return;
+    }
+
+    if (isCarousel) {
+      if (files.length > 100) {
+        resetUpload();
+        setUploadMessage("Envie no máximo 100 imagens para o carrossel.", true);
+        return;
+      }
+      const invalid = files.some((file) => !file.type.startsWith("image/"));
+      if (invalid) {
+        resetUpload();
+        setUploadMessage("O carrossel aceita apenas imagens (JPG, PNG, WebP).", true);
+        return;
+      }
+      showUploadSelection(files);
+      return;
+    }
+
+    // Modo imagem única
+    const [file] = files;
+    if (!file.type.startsWith("image/")) {
+      resetUpload();
+      setUploadMessage("Selecione uma imagem (JPG, PNG, WebP) para o modo Imagem.", true);
+      return;
+    }
+    showUploadSelection([file]);
+  } finally {
+    hideLoadingOverlay();
   }
-  showUploadSelection([file]);
+};
+
+const addUploadDragAndDrop = () => {
+  if (!uploadLabel) return;
+  const highlight = () => uploadLabel.classList.add("dragging");
+  const unhighlight = () => uploadLabel.classList.remove("dragging");
+  const prevent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  const handleDrop = (event) => {
+    prevent(event);
+    unhighlight();
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (!files.length) return;
+    handleUploadChange({ target: { files } });
+  };
+
+  ["dragenter", "dragover"].forEach((type) => {
+    uploadLabel.addEventListener(type, (event) => {
+      prevent(event);
+      highlight();
+    });
+  });
+  ["dragleave", "drop"].forEach((type) => {
+    uploadLabel.addEventListener(type, (event) => {
+      prevent(event);
+      unhighlight();
+    });
+  });
+  uploadLabel.addEventListener("drop", handleDrop);
 };
 
 const publishUpload = async () => {
@@ -392,6 +676,7 @@ const publishUpload = async () => {
     return;
   }
   setUploadMessage("Senha aceita. Enviando e publicando...");
+  showLoadingOverlay("Enviando mídia...");
 
   const filesToSend = isCarousel ? currentUpload.files : [currentUpload.file];
   if (!filesToSend || !filesToSend.length) {
@@ -429,12 +714,22 @@ const publishUpload = async () => {
 
     setUploadMessage("Publicado com sucesso! Atualizando visualização...");
     showStatusOverlay("Senha correta. Publicando...", true);
-    await loadMedia();
+
+    const liveMedia = normalizeMediaPayload(data);
+    if (liveMedia) {
+      currentLiveMedia = liveMedia;
+      renderStories(liveMedia);
+    }
+
+    await loadMedia({ preserveStories: true });
+    resetUpload();
+    setTimeout(() => window.location.reload(), 800);
   } catch (error) {
     console.error(error);
     setUploadMessage(error.message || "Erro ao enviar. Confira API_BASE e CORS.", true);
   } finally {
     if (publishButton) publishButton.disabled = false;
+    hideLoadingOverlay();
   }
 };
 
@@ -449,6 +744,7 @@ const closeViewer = () => {
   if (!viewerOverlay || !viewerSlot) return;
   viewerOverlay.classList.add("hidden");
   viewerSlot.innerHTML = "";
+  clearStoryAutoplay();
 };
 
 const formatDate = (value) => {
@@ -622,13 +918,18 @@ const init = () => {
   }
 
   if (refreshButton) refreshButton.addEventListener("click", () => loadMedia());
-  if (viewLiveButton) viewLiveButton.addEventListener("click", () => openViewer(currentLiveMedia));
+  if (viewLiveButton) viewLiveButton.addEventListener("click", () => openStoryAt(0));
   if (uploadInput) uploadInput.addEventListener("change", handleUploadChange);
   if (chooseUploadButton) {
     chooseUploadButton.addEventListener("click", () => uploadInput?.click());
   }
+  addUploadDragAndDrop();
   if (viewUploadButton) viewUploadButton.addEventListener("click", () => openViewer(currentUpload));
   if (publishButton) publishButton.addEventListener("click", publishUpload);
+  const prevNav = document.querySelector(".story-nav.prev");
+  const nextNav = document.querySelector(".story-nav.next");
+  if (prevNav) prevNav.addEventListener("click", () => openStoryAt(storyIndex - 1));
+  if (nextNav) nextNav.addEventListener("click", () => openStoryAt(storyIndex + 1));
   if (closeViewerButton) closeViewerButton.addEventListener("click", closeViewer);
 
   if (viewerOverlay) {
