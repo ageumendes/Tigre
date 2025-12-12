@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Placar de Hoje - Supermercado Tigre</title>
+    <style>
+      :root {
+        font-family: "Sora", "Segoe UI", system-ui, sans-serif;
+        background-color: #030608;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(180deg, #04121f, #090a13 60%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 16px;
+      }
+
+      .scores-wrapper {
+        width: min(520px, 100%);
+      }
+
+      .scores-card {
+        background: rgba(8, 14, 22, 0.85);
+        border-radius: 30px;
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65);
+        color: #f5f8ff;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .scores-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+      }
+
+      .scores-header h1 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: 0.2em;
+      }
+
+      .scores-header span {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      .scores-section {
+        border-radius: 20px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .scores-section h2 {
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.25em;
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      .score-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .score-item:last-child {
+        border-bottom: none;
+      }
+
+      .score-status {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .score-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .score-row span {
+        flex: 1;
+        text-align: center;
+      }
+
+      .score-row strong {
+        flex: 0 0 80px;
+        text-align: center;
+        font-size: 18px;
+        color: #ffd447;
+      }
+
+      .score-live {
+        background: rgba(255, 99, 71, 0.08);
+        border-left: 4px solid #ff6b6b;
+        padding: 12px;
+        border-radius: 12px;
+      }
+
+      .score-live span {
+        display: block;
+      }
+
+      .scores-footer {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        letter-spacing: 0.3em;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .message {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 14px;
+        padding: 30px 0;
+      }
+
+      .error {
+        color: #ff7b7b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="scores-wrapper">
+      <div class="scores-card">
+        <header class="scores-header">
+          <h1>Placar de Hoje</h1>
+          <span id="placares-data">--/--/----</span>
+        </header>
+
+        <section class="scores-section scores-live" id="scores-live">
+          <h2>⚽ Ao vivo</h2>
+          <div class="message" id="live-message">Carregando jogos ao vivo...</div>
+        </section>
+
+        <section class="scores-section" id="scores-day">
+          <h2>Jogos do dia</h2>
+          <div class="message" id="day-message">Carregando jogos do dia...</div>
+        </section>
+
+        <footer class="scores-footer">
+          <span id="scores-fonte">Fonte: --</span>
+          <span id="scores-status">Atualizado agora</span>
+        </footer>
+      </div>
+    </div>
+    <script src="placares.js"></script>
+  </body>
+</html>
