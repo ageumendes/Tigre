@@ -18,14 +18,14 @@
 
     <main class="grid single-column">
       <div class="status-panel">
-        <div class="status-bar">
-          <div class="actions-group" style="display:none">
-            <button id="refresh-button" class="ghost-button small">Atualizar mídias</button>
-            <button id="view-live-button" class="ghost-button primary small" disabled>Ver em tela cheia</button>
-            <a class="ghost-button small" href="captive.html" target="_blank" rel="noopener">Página pública</a>
+          <div class="status-bar">
+            <div class="actions-group" style="display:none">
+              <button id="refresh-button" class="ghost-button small">Atualizar mídias</button>
+              <button id="view-live-button" class="ghost-button primary small" disabled>Ver em tela cheia</button>
+              <a class="ghost-button small" href="captive.html" target="_blank" rel="noopener">Página pública</a>
+            </div>
+            <div id="status" class="status"></div>
           </div>
-          <div id="status" class="status"></div>
-        </div>
         <div id="media-stories" class="media-stories"></div>
       </div>
 
@@ -41,21 +41,20 @@
         <div class="upload-split">
           <div class="upload-left">
             <div class="upload-area">
-              <div class="promo-grid">
+              <div class="promo-grid promo-grid-target">
                 <label>
-                  Tipo de mídia
-                  <select id="media-type-select" class="ghost-select">
-                    <option value="video">Vídeo único</option>
-                    <option value="image">Imagem única</option>
-                    <option value="carousel">Varias imagens</option>
+                  Selecione onde as midias serão mostradas!?
+                  <select id="target-select" class="ghost-select">
+                    <option value="todas">Selecione</option>
                   </select>
                 </label>
+                <button id="open-tv-overlay" type="button" class="ghost-button small">Gerenciar TVs</button>
               </div>
               <label for="upload-input" class="upload-label">
-                <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*">
+                <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*" multiple>
                 <div class="upload-drop">
-                  <p class="upload-title">Arraste um arquivo ou clique para procurar</p>
-                  <p class="upload-subtitle">Aceita vídeo MP4 ou imagens (JPG, PNG, WebP). Para carrossel, selecione múltiplas imagens.</p>
+                  <p class="upload-title">Arraste arquivos ou clique para procurar</p>
+                  <p class="upload-subtitle">Aceita vídeo MP4 ou imagens (JPG, PNG, WebP). Selecione vários para carrossel.</p>
                   <button id="choose-upload-button" type="button" class="ghost-button small">Escolher arquivo</button>
                 </div>
               </label>
@@ -138,6 +137,7 @@
           </div>
         </form>
       </section>
+
     </main>
 
     <footer class="footer">
@@ -185,6 +185,51 @@
     <div class="loading-card">
       <div class="spinner big" aria-hidden="true"></div>
       <p id="loading-message">Processando...</p>
+    </div>
+  </div>
+
+  <div id="tv-overlay" class="full-overlay hidden" aria-hidden="true">
+    <div class="overlay-backdrop"></div>
+    <div class="overlay-card wide">
+      <button id="tv-overlay-close" class="close-button" aria-label="Fechar">×</button>
+      <section class="card tv-admin-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Roku</p>
+            <h2>Gerenciar TVs</h2>
+          </div>
+          <div class="actions">
+            <button id="tv-reload" class="ghost-button">Recarregar</button>
+          </div>
+        </div>
+
+        <div id="tv-status" class="status">Carregando TVs...</div>
+
+        <div class="promo-list-admin" id="tv-list">
+          <div class="placeholder">
+            <p>Nenhuma TV cadastrada ainda.</p>
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid rgba(0,0,0,0.08); margin: 16px 0;">
+
+        <form id="tv-form" class="promo-form">
+          <div class="promo-grid">
+            <label>
+              Nome *
+              <input id="tv-nome" name="nome" type="text" placeholder="Ex.: loja, açougue, hortifrut" required>
+            </label>
+            <label>
+              Marca do dispositivo *
+              <input id="tv-marca" name="marca" type="text" placeholder="Ex.: Roku, TCL, Samsung" required>
+            </label>
+          </div>
+          <div class="promo-actions">
+            <button type="submit" class="ghost-button primary" id="tv-save-button">Salvar TV</button>
+            <button type="button" class="ghost-button" id="tv-cancel-button" aria-disabled="true">Cancelar edição</button>
+          </div>
+        </form>
+      </section>
     </div>
   </div>
 

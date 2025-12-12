@@ -1,0 +1,20 @@
+[
+  {
+    "id": "tv_frente_loja",
+    "nome": "Roteador",
+    "tipo": "roteador",
+    "marca": "intelbras"
+  },
+  {
+    "id": "tv_acougue",
+    "nome": "Acougue",
+    "tipo": "acougue",
+    "marca": "roku"
+  },
+  {
+    "id": "tv_hortifrut",
+    "nome": "Hortifrut",
+    "tipo": "hortifrut",
+    "marca": "lg"
+  }
+]

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Previsão do Tempo - Seringueiras</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Sora", "Segoe UI", system-ui, -apple-system, sans-serif;
+        background-color: #050c0f;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #18303e, #050c0f 70%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+      }
+
+      .weather-wrapper {
+        width: min(480px, 100%);
+      }
+
+      .weather-card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 28px;
+        box-shadow: 0 35px 90px rgba(0, 0, 0, 0.5), 0 10px 20px rgba(2, 5, 7, 0.5);
+        backdrop-filter: blur(10px);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        color: #f1f6ff;
+      }
+
+      .weather-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .weather-title {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .weather-title h1 {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.18em;
+      }
+
+      .weather-title p {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.32em;
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      .weather-meta {
+        text-align: right;
+        font-size: 14px;
+      }
+
+      .time-line {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .icon-sun,
+      .icon-cloud,
+      .icon-rain,
+      .icon-storm,
+      .icon-fog {
+        font-size: 48px;
+      }
+
+      .weather-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .temp-row {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+
+      .tempo-temp {
+        font-size: 64px;
+        font-weight: 700;
+      }
+
+      .tempo-details {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        font-size: 14px;
+      }
+
+      .tempo-details span {
+        display: block;
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .condition {
+        font-size: 18px;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: #ffd447;
+      }
+
+      .proximas-horas {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+      }
+
+      .hora-card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 18px;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        text-align: center;
+        font-size: 13px;
+      }
+
+      .hora-card span {
+        display: block;
+      }
+
+      .weather-tomorrow {
+        margin-top: 12px;
+        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 20px;
+        background: rgba(255, 255, 255, 0.03);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .weather-tomorrow h3 {
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.3em;
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      .tomorrow-icon {
+        font-size: 32px;
+        text-align: center;
+      }
+
+      .tomorrow-info {
+        text-align: center;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .loading,
+      .error {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 14px;
+        padding: 40px 0;
+      }
+
+      .error {
+        color: #ff7b7b;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="weather-wrapper">
+      <div class="weather-card">
+        <header class="weather-header">
+          <div class="weather-title">
+            <h1>Seringueiras – RO</h1>
+            <p>Bairro verde do Brasil</p>
+          </div>
+          <div class="weather-meta">
+            <div id="data-atual" class="time-line">dd/mm/aaaa</div>
+            <div id="hora-atual" class="time-line">--:--</div>
+          </div>
+        </header>
+
+        <main class="weather-body">
+          <div class="temp-row">
+            <span id="icone-cidade" class="icon-cloud">☁️</span>
+            <div class="tempo-temp" id="temperatura-atual">--°C</div>
+          </div>
+          <div class="condition" id="condicao">Carregando previsão do tempo...</div>
+          <div class="tempo-details">
+            <span>Sensação: <strong id="sensacao">--°C</strong></span>
+            <span>Umidade: <strong id="umidade">--%</strong></span>
+            <span>Vento: <strong id="vento">-- km/h</strong></span>
+            <span>Fonte: <strong id="fonte">–</strong></span>
+          </div>
+        </main>
+
+        <section>
+          <h3 style="margin: 0; letter-spacing: 0.3em; font-size: 12px; color: rgba(255,255,255,0.6);">
+            Próximas horas
+          </h3>
+          <div class="proximas-horas" id="proximas-horas">
+            <div class="loading" id="hora-loading">Carregando previsão do tempo...</div>
+          </div>
+        </section>
+        <section class="weather-tomorrow" id="weather-tomorrow">
+          <div class="loading" id="tomorrow-loading">Carregando previsão de amanhã...</div>
+        </section>
+      </div>
+    </div>
+    <script src="previsao.js"></script>
+  </body>
+</html>
