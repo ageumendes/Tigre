@@ -90,88 +90,25 @@ const cleanOpenAIOutput = (text) => {
   return cleaned;
 };
 
-const standardizeImageBuffer = async (buffer, options = {}) => {
-  const { targetFormat = null, rotate = false } = options;
-  const metadata = await sharp(buffer).metadata();
-  let normalizedImage = sharp(buffer);
-  if (rotate) {
-    normalizedImage = normalizedImage.rotate(90);
-  }
-  normalizedImage = normalizedImage.resize({ width: STANDARD_WIDTH, height: STANDARD_HEIGHT, fit: "cover" });
-  const inferredFormat = (targetFormat || metadata.format || "jpeg").toLowerCase();
-  switch (inferredFormat) {
-    case "png":
-      return { buffer: await normalizedImage.png({ compressionLevel: 8 }).toBuffer(), format: "png" };
-    case "webp":
-      return { buffer: await normalizedImage.webp({ quality: 80 }).toBuffer(), format: "webp" };
-    default:
-      return {
-        buffer: await normalizedImage.jpeg({ quality: 80, progressive: true, chromaSubsampling: "4:2:0" }).toBuffer(),
-        format: "jpeg",
-      };
-  }
-};
-
-const normalizeImageFile = async (filePath) => {
-  const buffer = await fsPromises.readFile(filePath);
-  const { buffer: standardized } = await standardizeImageBuffer(buffer);
-  await fsPromises.writeFile(filePath, standardized);
-};
-
-const normalizeVideoFile = (filePath) =>
-  new Promise((resolve, reject) => {
-    const ffmpegBin = resolveFfmpeg();
-    if (!ffmpegBin) {
-      return reject(new Error("ffmpeg não disponível; impossível normalizar o vídeo."));
-    }
-    const tempPath = `${filePath}.normalized-${Date.now()}.mp4`;
-    const ffmpegArgs = [
-      "-y",
-      "-i",
-      filePath,
-      "-vf",
-      MEDIA_VIDEO_STANDARD_FILTER,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "23",
-      "-c:a",
-      "copy",
-      "-movflags",
-      "+faststart",
-      tempPath,
-    ];
-
-    const proc = spawn(ffmpegBin, ffmpegArgs, { stdio: "ignore" });
-    const cleanupTemp = () => fsPromises.unlink(tempPath).catch(() => {});
-    proc.on("error", (err) => {
-      cleanupTemp();
-      reject(err);
-    });
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        cleanupTemp();
-        return reject(new Error(`ffmpeg terminou com código ${code}`));
-      }
-      fsPromises
-        .rename(tempPath, filePath)
-        .then(resolve)
-        .catch((err) => {
-          cleanupTemp();
-          reject(err);
-        });
-    });
-  });
-
 const optimizeForRoku = async (buffer, originalName) => {
   if (!Buffer.isBuffer(buffer)) {
     throw new Error("Buffer inválido para otimização.");
   }
   try {
-    const { buffer: optimized } = await standardizeImageBuffer(buffer, { targetFormat: "jpeg", rotate: true });
-    console.log(`[ROKU-OPT] Ajustando ${originalName} para ${STANDARD_WIDTH}x${STANDARD_HEIGHT}`);
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
+    const width = metadata.width || 0;
+    const height = metadata.height || 0;
+    const needsResize = width > 1280 || height > 720;
+    if (needsResize) {
+      console.log(`[ROKU-OPT] Redimensionando ${originalName} para 1280px, qualidade 70%`);
+    } else {
+      console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720, sem redimensionar`);
+    }
+    const optimized = await image
+      .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 70, progressive: true, chromaSubsampling: "4:2:0" })
+      .toBuffer();
     return optimized;
   } catch (error) {
     console.error(`[ROKU-OPT] Falha ao otimizar ${originalName}:`, error.message);
@@ -188,10 +125,6 @@ const MIME_BY_EXT = {
   ".png": "image/png",
   ".webp": "image/webp",
 };
-const STANDARD_WIDTH = 1280;
-const STANDARD_HEIGHT = 750;
-const MEDIA_VIDEO_STANDARD_FILTER = `scale=w=${STANDARD_WIDTH}:h=${STANDARD_HEIGHT}:force_original_aspect_ratio=decrease,pad=${STANDARD_WIDTH}:${STANDARD_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
-const ROKU_VIDEO_STANDARD_FILTER = `transpose=1,${MEDIA_VIDEO_STANDARD_FILTER}`;
 
 fs.mkdirSync(mediaDir, { recursive: true });
 fs.mkdirSync(rokuDir, { recursive: true });
@@ -607,7 +540,7 @@ const processVideoForRoku = (item) =>
       "-i",
       originalFsPath,
       "-vf",
-      ROKU_VIDEO_STANDARD_FILTER,
+      "transpose=1",
       "-c:v",
       "libx264",
       "-preset",
@@ -1600,16 +1533,6 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
   const isVideo = ext === ".mp4";
   const mode = isVideo ? "video" : "image";
   const target = normalizeTarget(req.body?.target);
-  try {
-    if (isVideo) {
-      await normalizeVideoFile(req.file.path);
-    } else {
-      await normalizeImageFile(req.file.path);
-    }
-  } catch (error) {
-    console.error("Falha ao normalizar mídia enviada:", error.message);
-    return res.status(500).json({ ok: false, message: "Falha ao preparar arquivo enviado." });
-  }
 
   const item = summarizeFile(req.file.filename, target);
   const items = [item];
@@ -1655,15 +1578,6 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
 
   if (files.length > 100) {
     return res.status(400).json({ ok: false, message: "Envie no máximo 100 imagens para o carrossel." });
-  }
-
-  for (const file of files) {
-    try {
-      await normalizeImageFile(file.path);
-    } catch (error) {
-      console.error("Falha ao normalizar imagem do carrossel:", error.message);
-      return res.status(500).json({ ok: false, message: "Falha ao preparar arquivos do carrossel." });
-    }
   }
 
   const target = normalizeTarget(req.body?.target);
