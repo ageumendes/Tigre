@@ -95,15 +95,15 @@ const optimizeForRoku = async (buffer, originalName) => {
     throw new Error("Buffer inválido para otimização.");
   }
   try {
-    const image = sharp(buffer).rotate(90);
+    const image = sharp(buffer);
     const metadata = await image.metadata();
     const width = metadata.width || 0;
     const height = metadata.height || 0;
     const needsResize = width > 1280 || height > 720;
     if (needsResize) {
-      console.log(`[ROKU-OPT] Girando+redimensionando ${originalName} para 1280px, qualidade 70%`);
+      console.log(`[ROKU-OPT] Redimensionando ${originalName} para 1280px, qualidade 70%`);
     } else {
-      console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720 após rotação, sem redimensionar`);
+      console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720, sem redimensionar`);
     }
     const optimized = await image
       .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
