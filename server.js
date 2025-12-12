@@ -1,11 +1,15 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const sharp = require("sharp");
+const fsPromises = fs.promises;
 const ffmpegStatic = require("ffmpeg-static");
 const { spawn, spawnSync } = require("child_process");
+const { fetch } = require("undici");
+const OpenAI = require("openai");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +20,7 @@ const rokuDir = path.join(mediaDir, "roku");
 const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
+const tvConfigFile = path.join(__dirname, "tv-config.json");
 const rokuBannersFile = path.join(__dirname, "config", "roku-banners.txt");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const MAX_STATS = 5000;
@@ -30,6 +35,84 @@ const SUPPORTED_EVENT_TYPES = new Set([
   "share_clicked",
 ]);
 
+const openaiKey = process.env.OPENAI_API_KEY;
+let openai = null;
+if (openaiKey) {
+  openai = new OpenAI({ apiKey: openaiKey });
+} else {
+  console.warn("OPENAI_API_KEY não definido; rota /api/cotacoes-agro ficará indisponível.");
+}
+// O deploy deve definir: OPENAI_API_KEY=<sua-chave-da-openai>
+
+let cachedQuotes = null;
+let cachedAt = 0;
+const CACHE_MS = 15 * 60 * 1000; // 15 minutos
+let cachedWeather = null;
+let cachedWeatherAt = 0;
+const WEATHER_CACHE_MS = 10 * 60 * 1000; // 10 minutos
+let cachedScores = null;
+let cachedScoresAt = 0;
+const CACHE_SCORES_MS = 2 * 60 * 1000;
+let cachedCattle = null;
+let cachedCattleAt = 0;
+const CACHE_CATTLE_MS = 10 * 60 * 1000; // 10 minutos
+const CATTLE_CATEGORIES = [
+  "Boi gordo (castrado)",
+  "Boi gordo inteiro",
+  "Boi China / Exportação",
+  "Boi Europa / Angus / Premium",
+  "Boi comum (à vista)",
+  "Boi comum (a prazo)",
+  "Novilho",
+  "Novilho precoce",
+  "Novilho superprecoce",
+  "Vaca gorda",
+  "Vaca boa / exportação",
+  "Vaca comum",
+  "Novilha gorda",
+  "Novilha precoce",
+];
+
+const cleanOpenAIOutput = (text) => {
+  if (!text) return "";
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    return codeBlockMatch[1].trim();
+  }
+  const cleaned = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  const firstBrace = cleaned.indexOf("{");
+  if (firstBrace >= 0) {
+    return cleaned.slice(firstBrace).trim();
+  }
+  return cleaned;
+};
+
+const optimizeForRoku = async (buffer, originalName) => {
+  if (!Buffer.isBuffer(buffer)) {
+    throw new Error("Buffer inválido para otimização.");
+  }
+  try {
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
+    const width = metadata.width || 0;
+    const height = metadata.height || 0;
+    const needsResize = width > 1280 || height > 720;
+    if (needsResize) {
+      console.log(`[ROKU-OPT] Redimensionando ${originalName} para 1280px, qualidade 70%`);
+    } else {
+      console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720, sem redimensionar`);
+    }
+    const optimized = await image
+      .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 70, progressive: true, chromaSubsampling: "4:2:0" })
+      .toBuffer();
+    return optimized;
+  } catch (error) {
+    console.error(`[ROKU-OPT] Falha ao otimizar ${originalName}:`, error.message);
+    throw new Error("Falha ao processar a imagem para Roku.");
+  }
+};
+
 // Extensões permitidas (vídeo e imagens) para o portal cativo.
 const ALLOWED_EXT = [".mp4", ".jpg", ".jpeg", ".png", ".webp"];
 const MIME_BY_EXT = {
@@ -42,6 +125,58 @@ const MIME_BY_EXT = {
 
 fs.mkdirSync(mediaDir, { recursive: true });
 fs.mkdirSync(rokuDir, { recursive: true });
+
+// TVs configuráveis para Roku.
+const normalizeTarget = (value) => {
+  const val = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return val || "todas";
+};
+const targetSuffix = (value) => {
+  const normalized = normalizeTarget(value);
+  return normalized === "todas" ? "" : `-${slugifyId(normalized)}`;
+};
+const normalizeItems = (items = []) =>
+  Array.isArray(items)
+    ? items.map((item) => ({ ...item, target: normalizeTarget(item?.target) }))
+    : [];
+
+const buildAggregateEntry = (targets = {}) => {
+  const aggregated = {
+    mode: "video",
+    items: [],
+    rokuItems: [],
+    target: "todas",
+    updatedAt: Date.now(),
+  };
+  let modeCandidate = "";
+  Object.values(targets).forEach((entry) => {
+    if (!entry) return;
+    if (!modeCandidate && entry.mode) {
+      modeCandidate = entry.mode;
+    }
+    aggregated.items.push(...(entry.items || []));
+    aggregated.rokuItems.push(...(entry.rokuItems || []));
+  });
+  aggregated.mode = modeCandidate || "video";
+  return aggregated;
+};
+
+const collectReferencedFilenames = (entries = []) => {
+  const keep = new Set();
+  (entries || []).forEach((item) => {
+    const name = item?.path ? path.basename(item.path) : "";
+    if (name) keep.add(name);
+  });
+  return Array.from(keep);
+};
+const slugifyId = (value) =>
+  (value || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^\w-]+/g, "")
+    .slice(0, 120);
 
 let ffmpegPath = null;
 let ffmpegChecked = false;
@@ -70,7 +205,8 @@ const storageSingle = multer.diskStorage({
   filename: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
     const isVideo = ext === ".mp4";
-    const baseName = isVideo ? "latest" : "latest-image";
+    const targetSegment = targetSuffix(_req.body?.target);
+    const baseName = isVideo ? `latest${targetSegment}` : `latest-image${targetSegment}`;
     cb(null, `${baseName}${ext}`);
   },
 });
@@ -80,7 +216,8 @@ const storageCarousel = multer.diskStorage({
   filename: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
     const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    cb(null, `carousel-${unique}${ext}`);
+    const targetSegment = targetSuffix(_req.body?.target);
+    cb(null, `carousel${targetSegment}-${unique}${ext}`);
   },
 });
 
@@ -90,7 +227,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
     const allowed = ALLOWED_EXT.includes(ext);
-    if (!allowed) return cb(new Error("Apenas MP4 ou imagens (jpg/png/webp) são aceitos."));
+    if (!allowed) return cb(new Error("Apenas MP4 ou imagens (jpg/png/webp) são aceitas."));
     cb(null, true);
   },
 });
@@ -126,17 +263,23 @@ app.use(
 
 const findLatestFile = () => {
   const files = fs.readdirSync(mediaDir);
-  for (const ext of ALLOWED_EXT) {
-    const candidates = [`latest${ext}`, `latest-image${ext}`];
-    for (const name of candidates) {
-      if (files.includes(name)) {
-        const fullPath = path.join(mediaDir, name);
-        const mime = MIME_BY_EXT[ext] || "application/octet-stream";
-        return { name, fullPath, mime };
-      }
-    }
-  }
-  return null;
+  const candidates = files.filter((file) => {
+    const ext = path.extname(file).toLowerCase();
+    return file.startsWith("latest") && ALLOWED_EXT.includes(ext);
+  });
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    const aStats = fs.statSync(path.join(mediaDir, a));
+    const bStats = fs.statSync(path.join(mediaDir, b));
+    return aStats.mtimeMs - bStats.mtimeMs;
+  });
+  const name = candidates[candidates.length - 1];
+  const ext = path.extname(name).toLowerCase();
+  return {
+    name,
+    fullPath: path.join(mediaDir, name),
+    mime: MIME_BY_EXT[ext] || "application/octet-stream",
+  };
 };
 
 // Mantido para compatibilidade interna (remove tudo exceto keepName).
@@ -203,29 +346,69 @@ const isImageExt = (ext) => [".jpg", ".jpeg", ".png", ".webp"].includes(ext.toLo
 
 const readMediaConfig = () => {
   try {
-    if (!fs.existsSync(mediaConfigFile)) return null;
+    if (!fs.existsSync(mediaConfigFile)) return { targets: {} };
     const raw = fs.readFileSync(mediaConfigFile, "utf8");
-    if (!raw) return null;
-    return JSON.parse(raw);
+    if (!raw) return { targets: {} };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { targets: {} };
+    const targetsRaw = parsed.targets || {};
+    const targets = {};
+    Object.entries(targetsRaw).forEach(([key, entry]) => {
+      const normalizedKey = normalizeTarget(key);
+      targets[normalizedKey] = {
+        ...entry,
+        target: normalizedKey,
+        items: normalizeItems(entry?.items),
+        rokuItems: normalizeItems(entry?.rokuItems),
+      };
+    });
+    const aggregate = buildAggregateEntry(targets);
+    return {
+      ...parsed,
+      targets,
+      items: aggregate.items,
+      rokuItems: aggregate.rokuItems,
+      mode: aggregate.mode,
+      updatedAt: parsed.updatedAt || Date.now(),
+    };
   } catch (error) {
     console.warn("Erro ao ler media-config.json:", error.message);
-    return null;
+    return { targets: {} };
   }
 };
 
-const writeMediaConfig = (mode, items) => {
-  const config = {
+const writeMediaConfig = (target, mode, items = [], rokuItems = [], replaceAll = false) => {
+  const current = readMediaConfig();
+  const normalizedTarget = normalizeTarget(target);
+  const baseTargets = {};
+  Object.entries(current.targets || {}).forEach(([key, value]) => {
+    if (key === normalizedTarget) return;
+    baseTargets[key] = value;
+  });
+  const nextTargets = replaceAll ? {} : { ...baseTargets };
+  nextTargets[normalizedTarget] = {
     mode,
     items,
+    rokuItems,
+    target: normalizedTarget,
+    updatedAt: Date.now(),
+  };
+  const aggregate = buildAggregateEntry(nextTargets);
+  const nextConfig = {
+    ...current,
+    targets: nextTargets,
+    items: aggregate.items,
+    rokuItems: aggregate.rokuItems,
+    mode: aggregate.mode,
     updatedAt: Date.now(),
   };
   try {
-    fs.writeFileSync(mediaConfigFile, JSON.stringify(config, null, 2));
+    fs.writeFileSync(mediaConfigFile, JSON.stringify(nextConfig, null, 2));
   } catch (error) {
     console.error("Erro ao gravar media-config.json:", error.message);
     throw error;
   }
-  return config;
+  return nextConfig;
 };
 
 // Gera a base pública para links do Roku (usa PUBLIC_BASE_URL ou host do request).
@@ -238,8 +421,67 @@ const resolvePublicBaseUrl = (req) => {
   return `${proto}://${host}`.replace(/\/+$/, "");
 };
 
+// Feed dinâmico: filtra mídias por target (todas ou valor exato)
+const filterItemsByTarget = (items = [], tipo = "todas") =>
+  (items || []).filter((item) => {
+    const target = normalizeTarget(item?.target);
+    const normalizedTipo = normalizeTarget(tipo);
+    if (target === "todas" || normalizedTipo === "todas") return true;
+    return target === normalizedTipo;
+  });
+
+const buildRokuUrls = (items = [], req) => {
+  const baseUrl = resolvePublicBaseUrl(req);
+  if (!baseUrl) return [];
+
+  return (items || [])
+    .filter((item) => item?.path)
+    .map((item) => {
+      const fullUrl = new URL(item.path, `${baseUrl}/`);
+      const cacheBust = Math.floor(item.updatedAt || Date.now());
+      fullUrl.searchParams.set("t", cacheBust);
+      return fullUrl.toString();
+    });
+};
+
+// TVs configuráveis para Roku
+const readTvConfig = () => {
+  try {
+    if (!fs.existsSync(tvConfigFile)) return [];
+    const raw = fs.readFileSync(tvConfigFile, "utf8");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Erro ao ler tv-config.json:", error.message);
+    return [];
+  }
+};
+
+const writeTvConfig = (tvs) => {
+  const safe = Array.isArray(tvs) ? tvs : [];
+  try {
+    fs.writeFileSync(tvConfigFile, JSON.stringify(safe, null, 2));
+  } catch (error) {
+    console.error("Erro ao gravar tv-config.json:", error.message);
+    throw error;
+  }
+  return safe;
+};
+
+const normalizeTvPayload = (body = {}, keepId = false) => {
+  const nome = safeStr(body.nome || body.name || "", 160);
+  const marca = safeStr(body.marca || body.brand || "", 160);
+  const tipo = normalizeTarget(body.tipo || nome);
+  const baseId = body.id ? safeStr(body.id, 120) : slugifyId(`${nome}-${marca}` || nome);
+  const id = keepId ? baseId : slugifyId(baseId || nome || marca);
+  return { id, nome, tipo, marca };
+};
+
 const refreshRokuBanners = (items = [], req) => {
-  const assets = (items || []).filter((item) => item?.path);
+  const assets = (items || [])
+    .filter((item) => item?.path)
+    .filter((item) => item.path.startsWith("/media/roku/"));
   if (!assets.length) return [];
 
   const baseUrl = resolvePublicBaseUrl(req);
@@ -262,7 +504,7 @@ const refreshRokuBanners = (items = [], req) => {
   return lines;
 };
 
-const summarizeFile = (fileName) => {
+const summarizeFile = (fileName, target = "todas") => {
   const fullPath = path.join(mediaDir, fileName);
   const stats = fs.statSync(fullPath);
   const ext = (path.extname(fileName) || "").toLowerCase();
@@ -271,6 +513,7 @@ const summarizeFile = (fileName) => {
     mime: getMimeFromExt(ext),
     size: stats.size,
     updatedAt: stats.mtimeMs,
+    target: normalizeTarget(target),
   };
 };
 
@@ -325,6 +568,7 @@ const processVideoForRoku = (item) =>
           mime: item.mime,
           size: stats.size,
           updatedAt: stats.mtimeMs,
+          target: normalizeTarget(item.target),
         });
       } catch (error) {
         console.warn("Erro ao ler vídeo Roku gerado:", error.message);
@@ -335,19 +579,6 @@ const processVideoForRoku = (item) =>
 
 async function generateRokuAssets(items = []) {
   const outputs = [];
-
-  try {
-    const rokuFiles = fs.readdirSync(rokuDir);
-    for (const file of rokuFiles) {
-      try {
-        fs.unlinkSync(path.join(rokuDir, file));
-      } catch (error) {
-        console.warn(`Não foi possível remover ${file} da pasta Roku:`, error.message);
-      }
-    }
-  } catch (error) {
-    console.warn("Não foi possível listar a pasta Roku para limpeza:", error.message);
-  }
 
   for (const item of items) {
     if (!item?.path) continue;
@@ -360,21 +591,21 @@ async function generateRokuAssets(items = []) {
       const originalFsPath = path.join(mediaDir, originalName);
       if (!fs.existsSync(originalFsPath)) continue;
 
-      const ext = (path.extname(originalName) || "").toLowerCase();
-      const base = path.basename(originalName, ext);
-      const rokuFileName = `${base}-roku${ext}`;
+      const base = path.basename(originalName, path.extname(originalName));
+      const rokuFileName = `${base}-roku.jpeg`;
       const rokuFsPath = path.join(rokuDir, rokuFileName);
 
-      await sharp(originalFsPath)
-        .rotate(90, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
-        .toFile(rokuFsPath);
+      const buffer = await fsPromises.readFile(originalFsPath);
+      const optimizedBuffer = await optimizeForRoku(buffer, originalName);
+      await fsPromises.writeFile(rokuFsPath, optimizedBuffer);
 
       const stats = fs.statSync(rokuFsPath);
       outputs.push({
         path: `/media/roku/${rokuFileName}`,
-        mime: item.mime,
+        mime: "image/jpeg",
         size: stats.size,
         updatedAt: stats.mtimeMs,
+        target: normalizeTarget(item.target),
       });
       continue;
     }
@@ -397,6 +628,174 @@ const cleanupKeeping = (keepList) => {
       fs.unlinkSync(path.join(mediaDir, file));
     } catch (error) {
       console.warn(`Não foi possível remover ${file}:`, error.message);
+    }
+  }
+};
+
+const getRandom = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
+const EXTRAS_CACHE = {
+  weather: { updatedAt: 0, data: null },
+  commodities: { updatedAt: 0, data: null },
+  scores: { updatedAt: 0, data: null },
+};
+
+const buildForecast = () =>
+  ["Hoje", "Amanhã", "Depois"].map((label) => ({
+    day: label,
+    high: getRandom(25, 35),
+    low: getRandom(18, 24),
+  }));
+
+const refreshWeather = () => {
+  EXTRAS_CACHE.weather.data = {
+    ok: true,
+    location: "Centro de Distribuição",
+    current: getRandom(22, 33),
+    summary: "Parcialmente nublado com chance de chuva à tarde",
+    forecast: buildForecast(),
+    updatedAt: new Date().toLocaleTimeString("pt-BR"),
+  };
+  EXTRAS_CACHE.weather.updatedAt = Date.now();
+};
+
+const refreshCommodities = () => {
+  const samples = [
+    ["Café", "R$ 820,00", "+1,2%"],
+    ["Leite", "R$ 3,10", "+0,4%"],
+    ["Soja", "R$ 190,20", "-0,3%"],
+    ["Milho", "R$ 124,70", "+0,9%"],
+    ["Carne bovina", "R$ 28,50", "+1,6%"],
+    ["Carne suína", "R$ 12,30", "+0,8%"],
+    ["Ave", "R$ 11,80", "-0,1%"],
+  ];
+  EXTRAS_CACHE.commodities.data = {
+    ok: true,
+    market: "Bolsa Agro Brasil",
+    updatedAt: new Date().toLocaleTimeString("pt-BR"),
+    items: samples.map(([label, price, change]) => ({ label, price, change })),
+  };
+  EXTRAS_CACHE.commodities.updatedAt = Date.now();
+};
+
+const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN;
+const FOOTBALL_DATA_BASE_URL = "https://api.football-data.org/v4/matches";
+const FOOTBALL_DATA_COMPETITIONS = process.env.FOOTBALL_DATA_COMPETITIONS || "2013,2014,2015,2016,2002,2001,2142";
+
+const buildScoreEntry = (options) => ({
+  league: options.league,
+  home: options.home,
+  away: options.away,
+  scoreHome: typeof options.scoreHome === "number" ? options.scoreHome : options.scoreHome || 0,
+  scoreAway: typeof options.scoreAway === "number" ? options.scoreAway : options.scoreAway || 0,
+  status: options.status || "Pendente",
+});
+
+const mockScores = [
+  { league: "Brasileirão Série A", home: "Flamengo", away: "Palmeiras", scoreHome: 2, scoreAway: 2, status: "2º tempo" },
+  { league: "Brasileirão Série B", home: "Bahia", away: "Cruzeiro", scoreHome: 1, scoreAway: 0, status: "Finalizado" },
+  { league: "Copa do Brasil", home: "Atlético-MG", away: "Grêmio", scoreHome: 3, scoreAway: 1, status: "Finalizado" },
+  { league: "Libertadores", home: "Internacional", away: "River Plate", scoreHome: 1, scoreAway: 1, status: "2º tempo" },
+  { league: "Copa Sul-Americana", home: "Fluminense", away: "Nacional", scoreHome: 0, scoreAway: 0, status: "Intervalo" },
+  { league: "Mundial de Clubes", home: "Corinthians", away: "Real Madrid", scoreHome: 1, scoreAway: 2, status: "Finalizado" },
+];
+
+const normalizeFootballMatch = (match) => {
+  const competition = match?.competition?.name || match?.competition?.code || "Liga";
+  const home = match?.homeTeam?.name || match?.homeTeam?.shortName || match?.homeTeam?.tla || "Time A";
+  const away = match?.awayTeam?.name || match?.awayTeam?.shortName || match?.awayTeam?.tla || "Time B";
+  const fullTime = match?.score?.fullTime || {};
+  const status = match?.status || "Pendente";
+  return buildScoreEntry({
+    league: competition,
+    home,
+    away,
+    scoreHome: typeof fullTime.home === "number" ? fullTime.home : null,
+    scoreAway: typeof fullTime.away === "number" ? fullTime.away : null,
+    status,
+  });
+};
+
+const fetchFootballDataMatches = async () => {
+  if (!FOOTBALL_DATA_TOKEN) {
+    console.warn("[scores] Football Data sem token (FOOTBALL_DATA_TOKEN não definido).");
+    return null;
+  }
+  try {
+    const params = new URLSearchParams();
+    const today = new Date();
+    const dateFrom = new Date(today);
+    dateFrom.setDate(dateFrom.getDate() - 1);
+    const dateTo = new Date(today);
+    dateTo.setDate(dateTo.getDate() + 1);
+    const formatDay = (value) => value.toISOString().slice(0, 10);
+    params.set("competitions", FOOTBALL_DATA_COMPETITIONS);
+    params.set("status", "SCHEDULED,IN_PLAY,FINISHED");
+    params.set("dateFrom", formatDay(dateFrom));
+    params.set("dateTo", formatDay(dateTo));
+    const url = `${FOOTBALL_DATA_BASE_URL}?${params.toString()}`;
+    console.log(`[scores] Football Data solicitando ${url}`);
+    const response = await fetch(url, {
+      headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+    });
+    if (!response.ok) {
+      const payload = await response.text().catch(() => "");
+      console.warn(
+        `[scores] Football Data respondeu ${response.status} ${response.statusText} (${payload?.slice(
+          0,
+          200
+        ) || "sem corpo"})`
+      );
+      return null;
+    }
+    const payload = await response.json();
+    const matches = Array.isArray(payload?.matches) ? payload.matches : [];
+    if (!matches.length) {
+      console.warn("[scores] Football Data retornou nenhuma partida.");
+      return null;
+    }
+    return matches.slice(0, 6).map(normalizeFootballMatch);
+  } catch (error) {
+    console.error("[scores] Falha ao consultar Football Data:", error.message);
+    return null;
+  }
+};
+
+const refreshScores = async () => {
+  const remoteMatches = await fetchFootballDataMatches();
+  const matchesSource = remoteMatches && remoteMatches.length ? "Football-Data" : "mock";
+  const matches = (remoteMatches && remoteMatches.length ? remoteMatches : mockScores).map((entry) =>
+    buildScoreEntry(entry)
+  );
+  console.log(`[scores] usando dados de ${matchesSource}.`);
+  const leagues = Array.from(new Set(matches.map((match) => match.league).filter(Boolean)));
+  EXTRAS_CACHE.scores.data = {
+    ok: true,
+    league: leagues[0] || "Brasileirão Série A",
+    leagues,
+    updatedAt: new Date().toLocaleTimeString("pt-BR"),
+    matches,
+  };
+  EXTRAS_CACHE.scores.updatedAt = Date.now();
+};
+
+const touchCache = async (key, refresher) => {
+  const cache = EXTRAS_CACHE[key];
+  if (!cache) return null;
+  if (Date.now() - cache.updatedAt > 5 * 60 * 1000 || !cache.data) {
+    await refresher();
+  }
+  return cache.data;
+};
+
+const cleanupRokuKeeping = (keepList) => {
+  const keepSet = new Set(keepList);
+  const files = fs.readdirSync(rokuDir);
+  for (const file of files) {
+    if (keepSet.has(file)) continue;
+    try {
+      fs.unlinkSync(path.join(rokuDir, file));
+    } catch (error) {
+      console.warn(`Não foi possível remover ${file} da pasta Roku:`, error.message);
     }
   }
 };
@@ -448,36 +847,723 @@ const isPromoActive = (promo) => {
   return until >= Date.now();
 };
 
-// Rota simples para Roku: lê a lista de banners em texto plano.
-// Para atualizar o carrossel da Roku, edite config/roku-banners.txt (uma URL por linha) e faça o deploy.
-app.get("/roku-banners.txt", (_req, res) => {
-  fs.readFile(rokuBannersFile, "utf8", (err, data) => {
-    if (err) {
-      console.error("Erro ao ler roku-banners.txt:", err.message);
-      return res.status(500).send("Erro ao carregar lista de banners");
-    }
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    return res.status(200).send(data);
-  });
+// Feed de Roku: gera dinamicamente por tipo de TV (todas ou tipos definidos) com fallback para arquivo txt legado.
+app.get("/api/roku/tvs", (_req, res) => {
+  try {
+    const tvs = readTvConfig();
+    return res.json({ ok: true, tvs });
+  } catch (error) {
+    console.error("Erro ao listar TVs:", error.message);
+    return res.status(500).json({ ok: false, tvs: [] });
+  }
 });
 
-app.get("/api/info", (_req, res) => {
+app.get("/api/cotacoes-agro", async (_req, res) => {
+  // Retorna cotações agro via OpenAI + busca web; cache de 15 min
+  if (!openai) {
+    console.warn("[cotacoes-agro] requisição sem OpenAI key configurada.");
+    return res.status(503).json({ error: "Chave OPENAI_API_KEY ausente; rota indisponível." });
+  }
+  if (cachedQuotes && Date.now() - cachedAt < CACHE_MS) {
+    return res.json(cachedQuotes);
+  }
+
+  const prompt = `
+Quero as cotações ATUAIS no Brasil para os itens abaixo, priorizando a região de Seringueiras – Rondônia:
+
+1. Café arábica (saca 60kg)
+2. Soja (saca 60kg)
+3. Milho (saca 60kg)
+4. Boi gordo (arroba)
+5. Suíno (kg vivo ou carcaça, mencione qual)
+6. Frango/ave (kg, mencione se vivo/atacado/varejo)
+
+Priorize as fontes nesta ordem:
+  a) Seringueiras – RO ou praças próximas.
+  b) Estado de Rondônia (RO).
+  c) Estados próximos (AC, AM, MT, MS, GO).
+  d) Preço médio nacional.
+
+Para cada item informe:
+  * Valor numérico (não use 0; se não tiver dado confiável, use null).
+  * Região consultada (Seringueiras-RO, RO, MT, Brasil etc.).
+  * Obs explicando a origem (ex.: "indicador nacional CEPEA").
+
+Responda APENAS com JSON, sem texto extra, no formato:
+{
+  "dataAtual": "AAAA-MM-DD",
+  "fontePrincipal": "string",
+  "itens": [
+    {
+      "nome": "Cafe arabica",
+      "unidade": "saca 60kg",
+      "preco": 0,
+      "regiaoReferencia": "Seringueiras-RO",
+      "obs": "texto opcional"
+    }
+  ]
+}
+
+Nunca retorne 0 (zero). Use null apenas quando não houver dado confiável e explique no obs.
+`;
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: prompt,
+      max_output_tokens: 800,
+      tools: [
+        {
+          type: "web_search_preview",
+        },
+      ],
+    });
+
+    // https://platform.openai.com/docs/api-reference/responses/response-object#response_object-output_text
+    const pool =
+      response.output_text ||
+      (Array.isArray(response.output)
+        ? response.output
+            .flatMap((block) => block?.content || [])
+            .map((item) => item.text || "")
+            .join(" ")
+        : "");
+    const rawOutput = cleanOpenAIOutput(pool);
+
+    if (!rawOutput) {
+      console.error("[cotacoes-agro] resposta sem texto");
+      return res.status(500).json({ error: "Falha ao obter cotações agro no momento." });
+    }
+
+    let json;
+    try {
+      json = JSON.parse(rawOutput);
+    } catch (parseError) {
+      console.error("[cotacoes-agro] erro ao parsear JSON:", parseError.message, rawOutput);
+      return res.status(500).json({ error: "Falha ao obter cotações agro no momento." });
+    }
+
+    const itensSemPreco = json.itens.filter(
+      (item) =>
+        item.preco === null ||
+        item.preco === 0 ||
+        typeof item.preco !== "number" ||
+        Number.isNaN(item.preco)
+    );
+
+    if (itensSemPreco.length > 0) {
+      const nomesItens = itensSemPreco
+        .map((item) => `- ${item.nome} (${item.unidade || "unidade"})`)
+        .join("\n");
+      const promptBrasil = `
+Quero preços MÉDIOS BRASIL para os seguintes itens agropecuários no formato exato indicado.
+
+${nomesItens}
+
+Responda apenas com JSON sem texto extra:
+{
+  "itens": [
+    {
+      "nome": "string (mesmo nome que enviei)",
+      "unidade": "string (mesma unidade que enviei)",
+      "preco": number | null,
+      "obs": "string explicando a fonte"
+    }
+  ]
+}
+
+Use preços médios Brasil (indicadores nacionais como CEPEA, Scot, Safras, etc.). Nunca retorne 0; se não houver dado, use null.
+`;
+      try {
+        const responseBrasil = await openai.responses.create({
+          model: "gpt-4.1-mini",
+          input: promptBrasil,
+          max_output_tokens: 600,
+          tools: [{ type: "web_search_preview" }],
+        });
+        const brasilRaw = cleanOpenAIOutput(
+          responseBrasil.output_text ||
+            (Array.isArray(responseBrasil.output)
+              ? responseBrasil.output
+                  .flatMap((block) => block?.content || [])
+                  .map((item) => item.text || "")
+                  .join(" ")
+              : "")
+        );
+        const dataBrasil = JSON.parse(brasilRaw);
+        dataBrasil.itens.forEach((itemFallback) => {
+          const idx = json.itens.findIndex(
+            (orig) =>
+              orig.nome === itemFallback.nome && orig.unidade === itemFallback.unidade
+          );
+          if (idx !== -1) {
+            const origItem = json.itens[idx];
+            if (
+              origItem.preco === null ||
+              origItem.preco === 0 ||
+              typeof origItem.preco !== "number" ||
+              Number.isNaN(origItem.preco)
+            ) {
+              origItem.preco = itemFallback.preco;
+              if (itemFallback.preco !== null && itemFallback.preco !== undefined) {
+                origItem.regiaoReferencia = "Brasil";
+              }
+              const obsOriginal = origItem.obs ? `${origItem.obs} | ` : "";
+              origItem.obs =
+                obsOriginal + (itemFallback.obs || "Preço médio Brasil (fallback).");
+            }
+          }
+        });
+      } catch (fallbackError) {
+        console.error("[cotacoes-agro] fallback Brasil falhou:", fallbackError);
+      }
+    }
+
+    json.itens = json.itens.map((item) => {
+      if (item.preco === 0) {
+        item.preco = null;
+      }
+      return item;
+    });
+
+    cachedQuotes = json;
+    cachedAt = Date.now();
+    return res.json(json);
+  } catch (error) {
+    console.error("[cotacoes-agro] falha:", error);
+    return res.status(500).json({ error: "Falha ao obter cotações agro no momento." });
+  }
+  // Exemplo de JSON retornado:
+  // {
+  //   "dataAtual": "2025-12-11",
+  //   "fontePrincipal": "CEPEA / dados regionais via OpenAI",
+  //   "itens": [
+  //     {
+  //       "nome": "Cafe arabica",
+  //       "unidade": "saca 60kg",
+  //       "preco": 2258.9,
+  //       "regiaoReferencia": "Brasil",
+  //       "obs": "Sem dado de Rondônia; indicador nacional."
+  //     },
+  //     {
+  //       "nome": "Milho",
+  //       "unidade": "saca 60kg",
+  //       "preco": 67.5,
+  //       "regiaoReferencia": "RO",
+  //       "obs": "Cotação em praça de Rondônia."
+  //     }
+  //   ]
+  // }
+});
+
+app.get("/api/cotacoes-gado", async (_req, res) => {
+  if (!openai) {
+    return res.status(400).json({ error: "OPENAI_API_KEY not set" });
+  }
+
+  if (cachedCattle && Date.now() - cachedCattleAt < CACHE_CATTLE_MS) {
+    return res.json(cachedCattle);
+  }
+
+  const prompt = `
+Use busca web no Boletim Diário de Preços do Estado de São Paulo e responda apenas com JSON no formato abaixo:
+{
+  "dataAtual": "AAAA-MM-DD",
+  "fontePrincipal": "string",
+  "praça": "São Paulo - SP",
+  "categorias": [
+    {
+      "nome": "Boi gordo (castrado)",
+      "unidade": "arroba",
+      "preco": null,
+      "fonte": "string",
+      "obs": "string"
+    }
+  ]
+}
+Inclua todas as categorias abaixo com os nomes exatos:
+${CATTLE_CATEGORIES.join("\n")}
+Nunca use preço = 0. Se não encontrar, coloque null e explique no obs.
+`;
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: prompt,
+      max_output_tokens: 900,
+      tools: [{ type: "web_search_preview" }],
+    });
+    const outputText = cleanOpenAIOutput(
+      response.output_text ||
+        (Array.isArray(response.output)
+          ? response.output
+              .flatMap((block) => block?.content || [])
+              .map((item) => item.text || "")
+              .join(" ")
+          : "")
+    );
+    if (!outputText.trim()) {
+      console.error("[cotacoes-gado] resposta sem texto");
+      return res.status(500).json({ error: "Falha ao obter cotações de gado." });
+    }
+    let data;
+    try {
+      data = JSON.parse(outputText);
+    } catch (parseError) {
+      console.error("[cotacoes-gado] parse falhou:", parseError.message, outputText);
+      return res.status(500).json({ error: "Falha ao obter cotações de gado." });
+    }
+
+    const categoriasPadrao = CATTLE_CATEGORIES.map((nome) => {
+      const existente = data.categorias?.find((cat) => cat.nome === nome);
+      return (
+        existente || {
+          nome,
+          unidade: "arroba",
+          preco: null,
+          fonte: "Boletim SP não informou",
+          obs: "Categoria não disponível no momento.",
+        }
+      );
+    });
+    data.categorias = categoriasPadrao.map((item) => ({
+      ...item,
+      preco: item.preco === 0 ? null : item.preco,
+    }));
+
+    const semPreco = data.categorias.filter((item) => item.preco === null);
+    if (semPreco.length) {
+      const nomes = semPreco.map((item) => `- ${item.nome}`).join("\n");
+      const promptBrasil = `
+Informe preços médios Brasil (CEPEA/Safras) para as categorias abaixo, respondendo apenas em JSON:
+{
+  "categorias": [
+    {
+      "nome": "string",
+      "preco": number | null,
+      "fonte": "CEPEA - Média Brasil",
+      "obs": "Fallback nacional"
+    }
+  ]
+}
+
+${nomes}
+
+Não retorne 0; use null quando não houver dado confiável.
+`;
+      try {
+        const responseBrasil = await openai.responses.create({
+          model: "gpt-4.1-mini",
+          input: promptBrasil,
+          max_output_tokens: 700,
+          tools: [{ type: "web_search_preview" }],
+        });
+        const fallbackText = cleanOpenAIOutput(
+          responseBrasil.output_text ||
+            (Array.isArray(responseBrasil.output)
+              ? responseBrasil.output
+                  .flatMap((block) => block?.content || [])
+                  .map((item) => item.text || "")
+                  .join(" ")
+              : "")
+        );
+        const dataBrasil = JSON.parse(fallbackText);
+        dataBrasil.categorias?.forEach((fallback) => {
+          const idx = data.categorias.findIndex((orig) => orig.nome === fallback.nome);
+          if (idx !== -1 && data.categorias[idx].preco === null) {
+            data.categorias[idx].preco = fallback.preco ?? null;
+            data.categorias[idx].fonte = fallback.fonte || "CEPEA - Média Brasil";
+            data.categorias[idx].obs = fallback.obs || "Fallback nacional";
+          }
+        });
+      } catch (fallbackError) {
+        console.error("[cotacoes-gado] fallback CEPEA falhou:", fallbackError);
+      }
+    }
+
+    data.categorias = data.categorias.map((item) => ({
+      ...item,
+      preco: item.preco === 0 ? null : item.preco,
+      unidade: item.unidade || "arroba",
+    }));
+
+    cachedCattle = {
+      dataAtual: data.dataAtual,
+      fontePrincipal: data.fontePrincipal,
+      praça: "São Paulo - SP",
+      categorias: data.categorias,
+    };
+    cachedCattleAt = Date.now();
+    return res.json(cachedCattle);
+  } catch (error) {
+    console.error("[cotacoes-gado] erro:", error);
+    return res.status(500).json({ error: "Falha ao obter cotações de gado." });
+  }
+  // Exemplo de retorno:
+  // {
+  //   "dataAtual": "2025-12-11",
+  //   "fontePrincipal": "Boletim Diário SP + CEPEA fallback",
+  //   "praça": "São Paulo - SP",
+  //   "categorias": [
+  //     { "nome": "Boi gordo (castrado)", "unidade": "arroba", "preco": 322.5, "fonte": "Scot/SP", "obs": "À vista" },
+  //     { "nome": "Novilha precoce", "unidade": "arroba", "preco": 310.0, "fonte": "CEPEA - Média Brasil", "obs": "Fallback nacional" }
+  //   ]
+  // }
+});
+
+app.get("/api/previsao", async (_req, res) => {
+  // Retorna previsão do tempo para Seringueiras (RO) via OpenAI Search
+  if (!openai) {
+    return res.status(400).json({ error: "OPENAI_API_KEY not set" });
+  }
+
+  if (cachedWeather && Date.now() - cachedWeatherAt < WEATHER_CACHE_MS) {
+    return res.json(cachedWeather);
+  }
+
+  const prompt = `
+Você é um meteorologista digital. Usando busca web, responda apenas em JSON (sem markdown):
+{
+  "cidade": "Seringueiras",
+  "estado": "Rondônia",
+  "dataAtual": "AAAA-MM-DD",
+  "horaAtual": "HH:MM",
+  "fonte": "string",
+  "tempo": {
+    "temperatura": 0,
+    "sensacao": 0,
+    "condicao": "string",
+    "umidade": 0,
+    "vento_kmh": 0
+  },
+  "proximas_horas": [
+    {
+      "hora": "HH:MM",
+      "temperatura": 0,
+      "condicao": "string"
+    }
+  ],
+  "amanha": {
+    "data": "AAAA-MM-DD",
+    "temperatura_min": 0,
+    "temperatura_max": 0,
+    "condicao": "string",
+    "umidade_media": 0,
+    "vento_medio_kmh": 0
+  }
+}
+Além da previsão atual e das próximas horas, inclua também a previsão completa do dia seguinte (amanhã) para Seringueiras–RO com mínima, máxima, condição predominante, umidade e vento médio.
+`;
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: prompt,
+      max_output_tokens: 800,
+      tools: [{ type: "web_search_preview" }],
+    });
+    const rawOutput = response.output_text || "";
+    const stripCodeBlock = (text) => {
+      if (!text) return text;
+      return text
+        .replace(/```(?:json)?/g, "")
+        .replace(/```/g, "")
+        .trim();
+    };
+    const outputText = stripCodeBlock(rawOutput);
+    if (!outputText.trim()) {
+      console.error("[previsao] resposta sem texto");
+      return res.status(500).json({ error: "Falha ao obter previsão." });
+    }
+    let json;
+    try {
+      json = JSON.parse(outputText);
+    } catch (parseError) {
+      console.error("[previsao] parse falhou:", parseError.message, outputText);
+      return res.status(500).json({ error: "Falha ao obter previsão." });
+    }
+    cachedWeather = json;
+    cachedWeatherAt = Date.now();
+    return res.json(json);
+  } catch (error) {
+    console.error("[previsao] erro:", error);
+    return res.status(500).json({ error: "Falha ao obter previsão." });
+  }
+  // Exemplo:
+  // {
+  //   "cidade": "Seringueiras",
+  //   "estado": "Rondônia",
+  //   "dataAtual": "2025-12-11",
+  //   "horaAtual": "14:30",
+  //   "fonte": "OpenAI Web Search + INMET",
+  //   "tempo": {...},
+  //   "proximas_horas": [...],
+  //   "amanha": {...}
+  // }
+});
+
+const FALLBACK_PLACARES = () => ({
+  dataAtual: new Date().toISOString().slice(0, 10),
+  fonte: "fallback",
+  ao_vivo: [],
+  jogos_do_dia: [],
+  obs: "Dados indisponíveis, exibindo fallback seguro.",
+});
+
+const sanitizeGame = (game = {}, live = false) => {
+  const sanitized = {
+    campeonato: game.campeonato || "Competição",
+    time_casa: game.time_casa || "Casa",
+    time_fora: game.time_fora || "Visitante",
+    status: game.status || (live ? "Em andamento" : "Programado"),
+    placar:
+      game.placar && game.placar !== "0" && game.placar !== "0-0" ? game.placar : "–",
+    data: game.data || null,
+  };
+  if (live) {
+    sanitized.minuto = game.minuto || "";
+  } else {
+    sanitized.horario = game.horario || "--:--";
+  }
+  return sanitized;
+};
+
+const sanitizeArray = (list, live = false) => {
+  const arr = Array.isArray(list) ? list : [];
+  return arr
+    .map((game) => sanitizeGame(game, live))
+    .filter((game) => game.campeonato || game.time_casa || game.time_fora);
+};
+
+app.get("/api/placares", async (_req, res) => {
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (!openai) {
+    return res.status(400).json({ error: "OPENAI_API_KEY not set" });
+  }
+
+  if (cachedScores && Date.now() - cachedScoresAt < CACHE_SCORES_MS) {
+    return res.json(cachedScores);
+  }
+
+  const prompt = `
+Você é um narrador esportivo especializado em campeonatos brasileiros e europeus.
+A data de hoje é: ${hoje}.
+Liste SOMENTE jogos que acontecem HOJE (${hoje}), sem incluir partidas históricas ou futuras.
+Inclua:
+- Jogos AO VIVO do dia ${hoje}
+- Jogos programados para hoje (data ${hoje})
+- Placar atualizado para partidas em andamento
+- Status (Em andamento / Programado / Encerrado)
+
+Use busca web e responda apenas em JSON:
+{
+  "dataAtual": "${hoje}",
+  "fonte": "string",
+  "ao_vivo": [
+    {
+      "campeonato": "string",
+      "time_casa": "string",
+      "time_fora": "string",
+      "placar": "string",
+      "minuto": "string",
+      "status": "Em andamento",
+      "data": "${hoje}"
+    }
+  ],
+  "jogos_do_dia": [
+    {
+      "campeonato": "string",
+      "horario": "HH:MM",
+      "time_casa": "string",
+      "time_fora": "string",
+      "status": "Programado",
+      "placar": null,
+      "data": "${hoje}"
+    }
+  ]
+}
+
+Não retornar jogos de datas diferentes de ${hoje}.
+`;
+
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4.1-mini",
+      input: prompt,
+      max_output_tokens: 800,
+      tools: [{ type: "web_search_preview" }],
+    });
+    const pool =
+      response.output_text ||
+      (Array.isArray(response.output)
+        ? response.output
+            .flatMap((block) => block?.content || [])
+            .map((item) => item.text || "")
+            .join(" ")
+        : "");
+    const outputText = cleanOpenAIOutput(pool);
+    if (!outputText.trim()) {
+      console.error("[placares] resposta sem texto");
+      return res.json(FALLBACK_PLACARES());
+    }
+    let json;
+    try {
+      json = JSON.parse(outputText);
+    } catch (parseError) {
+      console.error("[placares] parse falhou:", parseError.message, outputText);
+      return res.json(FALLBACK_PLACARES());
+    }
+
+    const rawAoVivo = Array.isArray(json.ao_vivo) ? json.ao_vivo : [];
+    const rawJogosDoDia = Array.isArray(json.jogos_do_dia) ? json.jogos_do_dia : [];
+    const filtroPorDia = (lista) =>
+      lista.filter((jogo) => !jogo?.data || jogo.data === hoje);
+
+    json.ao_vivo = sanitizeArray(filtroPorDia(rawAoVivo), true);
+    json.jogos_do_dia = sanitizeArray(filtroPorDia(rawJogosDoDia), false);
+    json.dataAtual = hoje;
+    json.fonte = json.fonte || "OpenAI Web Search";
+
+    cachedScores = json;
+    cachedScoresAt = Date.now();
+    return res.json(json);
+  } catch (error) {
+    console.error("[placares] erro:", error);
+    if (cachedScores) {
+      return res.json(cachedScores);
+    }
+    return res.json(FALLBACK_PLACARES());
+  }
+  // Exemplo:
+  // {
+  //   "dataAtual": "2025-12-11",
+  //   "fonte": "OpenAI Web Search - ESPN / Globo / SofaScore",
+  //   "ao_vivo": [...],
+  //   "jogos_do_dia": [...]
+  // }
+});
+
+app.get("/api/extras/weather", async (_req, res) => {
+  const data = await touchCache("weather", refreshWeather);
+  return res.json(data || { ok: false, message: "Sem dados climáticos." });
+});
+
+app.get("/api/extras/commodities", async (_req, res) => {
+  const data = await touchCache("commodities", refreshCommodities);
+  return res.json(data || { ok: false, message: "Sem dados de commodities." });
+});
+
+app.get("/api/extras/scores", async (_req, res) => {
+  const data = await touchCache("scores", refreshScores);
+  return res.json(data || { ok: false, message: "Sem dados de placares." });
+});
+
+// CRUD mínimo de TVs para Roku (protege com a mesma senha de upload).
+app.post("/api/roku/tvs", requireUploadAuth, (req, res) => {
+  const payload = normalizeTvPayload(req.body);
+  if (!payload.id) return res.status(400).json({ ok: false, message: "ID da TV é obrigatório." });
+  if (!payload.nome) return res.status(400).json({ ok: false, message: "Nome da TV é obrigatório." });
+  if (!payload.marca) return res.status(400).json({ ok: false, message: "Marca do dispositivo é obrigatória." });
+
+  try {
+    const tvs = readTvConfig();
+    if (tvs.find((tv) => tv.id === payload.id)) {
+      return res.status(400).json({ ok: false, message: "Já existe uma TV com esse ID." });
+    }
+    tvs.push(payload);
+    writeTvConfig(tvs);
+    return res.json({ ok: true, tv: payload, tvs });
+  } catch (error) {
+    console.error("Erro ao criar TV:", error.message);
+    return res.status(500).json({ ok: false, message: "Erro ao salvar TV." });
+  }
+});
+
+app.put("/api/roku/tvs/:id", requireUploadAuth, (req, res) => {
+  const tvId = req.params.id;
+  const tvs = readTvConfig();
+  const index = tvs.findIndex((tv) => tv.id === tvId);
+  if (index === -1) return res.status(404).json({ ok: false, message: "TV não encontrada." });
+
+  const existing = tvs[index];
+  const payload = normalizeTvPayload({ ...existing, ...req.body, id: existing.id }, true);
+  if (!payload.nome) return res.status(400).json({ ok: false, message: "Nome da TV é obrigatório." });
+  if (!payload.marca) return res.status(400).json({ ok: false, message: "Marca do dispositivo é obrigatória." });
+
+  tvs[index] = payload;
+  try {
+    writeTvConfig(tvs);
+    return res.json({ ok: true, tv: payload, tvs });
+  } catch (error) {
+    console.error("Erro ao atualizar TV:", error.message);
+    return res.status(500).json({ ok: false, message: "Erro ao atualizar TV." });
+  }
+});
+
+app.get("/roku-banners.txt", (req, res) => {
+  const tipo = normalizeTarget(req.query?.tipo || "todas");
+
+  // Feed dinâmico de banners para Roku por tipo de TV
+  let lines = [];
+  try {
+    const config = readMediaConfig();
+    const sourceItems = Array.isArray(config.rokuItems) ? config.rokuItems : [];
+    const filtered = filterItemsByTarget(sourceItems, tipo).filter((item) =>
+      (item?.path || "").startsWith("/media/roku/")
+    );
+    lines = buildRokuUrls(filtered, req);
+  } catch (error) {
+    console.error("Erro ao gerar feed dinâmico do Roku:", error.message);
+  }
+
+  // Fallback para arquivo txt caso algo dê errado ou não haja mídias
+  if (!lines || !lines.length) {
+    try {
+      const data = fs.readFileSync(rokuBannersFile, "utf8");
+      lines = data ? data.split(/\r?\n/).filter(Boolean) : [];
+    } catch (err) {
+      console.error("Erro ao ler roku-banners.txt (fallback):", err.message);
+      lines = [];
+    }
+  }
+
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.status(200).send((lines || []).join("\n"));
+});
+
+app.get("/api/info", (req, res) => {
+  const target = normalizeTarget(req.query?.target || "todas");
   const config = readMediaConfig();
-  if (config?.items?.length) {
+  if (target === "todas" && config.items?.length) {
     const primary = config.items[0];
     return res.json({
       ok: true,
+      target,
       mode: config.mode || "video",
-      path: primary.path,
-      mime: primary.mime,
-      size: primary.size,
-      updatedAt: primary.updatedAt,
+      path: primary?.path,
+      mime: primary?.mime,
+      size: primary?.size,
+      updatedAt: config.updatedAt,
       items: config.items,
       configUpdatedAt: config.updatedAt,
     });
   }
+  const entry = config.targets?.[target];
+  if (entry?.items?.length) {
+    const primary = entry.items[0];
+    return res.json({
+      ok: true,
+      target,
+      mode: entry.mode || "video",
+      path: primary?.path,
+      mime: primary?.mime,
+      size: primary?.size,
+      updatedAt: entry.updatedAt || primary?.updatedAt,
+      items: entry.items,
+      configUpdatedAt: entry.updatedAt || config.updatedAt,
+    });
+  }
 
-  // Fallback legacy: apenas latest.mp4
   const latest = findLatestFile();
   if (!latest) {
     return res.status(404).json({ ok: false, message: "Nenhuma mídia disponível." });
@@ -485,6 +1571,7 @@ app.get("/api/info", (_req, res) => {
   const stats = fs.statSync(latest.fullPath);
   return res.json({
     ok: true,
+    target,
     mode: "video",
     path: `/media/${latest.name}`,
     mime: latest.mime,
@@ -496,6 +1583,7 @@ app.get("/api/info", (_req, res) => {
         mime: latest.mime,
         size: stats.size,
         updatedAt: stats.mtimeMs,
+        target,
       },
     ],
   });
@@ -509,20 +1597,25 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
   const ext = (path.extname(req.file.originalname) || "").toLowerCase();
   const isVideo = ext === ".mp4";
   const mode = isVideo ? "video" : "image";
+  const target = normalizeTarget(req.body?.target);
 
-  const item = summarizeFile(req.file.filename);
+  const item = summarizeFile(req.file.filename, target);
   const items = [item];
   let rokuItems = [];
   try {
     rokuItems = await generateRokuAssets(items);
   } catch (error) {
     console.error("Erro ao gerar assets para Roku:", error.message);
+    return res.status(500).json({ ok: false, error: "Falha ao processar a imagem para Roku." });
   }
   const itemsForRoku = rokuItems.length ? rokuItems : items;
 
   try {
-    writeMediaConfig(mode, [item]);
-    cleanupKeeping([req.file.filename]);
+    const nextConfig = writeMediaConfig(target, mode, items, itemsForRoku, target === "todas");
+    const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
+    const keepRokuFiles = collectReferencedFilenames(nextConfig.rokuItems);
+    cleanupKeeping(keepMediaFiles);
+    cleanupRokuKeeping(keepRokuFiles);
     refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
@@ -552,18 +1645,24 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
     return res.status(400).json({ ok: false, message: "Envie no máximo 100 imagens para o carrossel." });
   }
 
-  const items = files.map((file) => summarizeFile(file.filename));
+  const target = normalizeTarget(req.body?.target);
+  const filenames = files.map((file) => file.filename);
+  const items = filenames.map((fileName) => summarizeFile(fileName, target));
   let rokuItems = [];
   try {
     rokuItems = await generateRokuAssets(items);
   } catch (error) {
     console.error("Erro ao gerar assets para Roku (carrossel):", error.message);
+    return res.status(500).json({ ok: false, error: "Falha ao processar a imagem para Roku." });
   }
   const itemsForRoku = rokuItems.length ? rokuItems : items;
 
   try {
-    writeMediaConfig("carousel", items);
-    cleanupKeeping(files.map((f) => f.filename));
+    const nextConfig = writeMediaConfig(target, "carousel", items, itemsForRoku, target === "todas");
+    const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
+    const keepRokuFiles = collectReferencedFilenames(nextConfig.rokuItems);
+    cleanupKeeping(keepMediaFiles);
+    cleanupRokuKeeping(keepRokuFiles);
     refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
