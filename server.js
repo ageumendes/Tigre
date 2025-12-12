@@ -91,18 +91,13 @@ const cleanOpenAIOutput = (text) => {
 };
 
 const standardizeImageBuffer = async (buffer, options = {}) => {
-  const { targetFormat = null, rotate = false, fit = "cover", background = "#000" } = options;
+  const { targetFormat = null, rotate = false } = options;
   const metadata = await sharp(buffer).metadata();
   let normalizedImage = sharp(buffer);
   if (rotate) {
     normalizedImage = normalizedImage.rotate(90);
   }
-  normalizedImage = normalizedImage.resize({
-    width: STANDARD_WIDTH,
-    height: STANDARD_HEIGHT,
-    fit,
-    background,
-  });
+  normalizedImage = normalizedImage.resize({ width: STANDARD_WIDTH, height: STANDARD_HEIGHT, fit: "cover" });
   const inferredFormat = (targetFormat || metadata.format || "jpeg").toLowerCase();
   switch (inferredFormat) {
     case "png":
@@ -175,12 +170,7 @@ const optimizeForRoku = async (buffer, originalName) => {
     throw new Error("Buffer inválido para otimização.");
   }
   try {
-    const { buffer: optimized } = await standardizeImageBuffer(buffer, {
-      targetFormat: "jpeg",
-      rotate: true,
-      fit: "contain",
-      background: "#000",
-    });
+    const { buffer: optimized } = await standardizeImageBuffer(buffer, { targetFormat: "jpeg", rotate: true });
     console.log(`[ROKU-OPT] Ajustando ${originalName} para ${STANDARD_WIDTH}x${STANDARD_HEIGHT}`);
     return optimized;
   } catch (error) {
