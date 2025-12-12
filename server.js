@@ -12,7 +12,6 @@ const sharp = require("sharp");
 const fsPromises = fs.promises;
 const ffmpegStatic = require("ffmpeg-static");
 const { spawn, spawnSync } = require("child_process");
-const { fetch } = require("undici");
 const OpenAI = require("openai");
 
 const app = express();
