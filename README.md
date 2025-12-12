@@ -46,7 +46,10 @@ npm run dev         # ou npm start
 ## Variáveis de ambiente úteis
 - `PORT`: porta do backend (padrão 3000).  
 - `MAX_UPLOAD_MB`: limite de upload em MB (padrão 200).  
-- `CORS_ORIGIN`: lista de origens permitidas (separadas por vírgula). Padrão: `*`.
+- `CORS_ORIGIN`: lista de origens permitidas (separadas por vírgula). Padrão: `*`.  
+- `OPENAI_API_KEY`: chave usada pela rota `/api/cotacoes-agro` (Responses API com busca web). Mantenha em segredo.
+
+Você pode copiar `.env.example` e preencher suas chaves antes de subir o ambiente local ou configurar as variáveis direto no servidor de deploy.
 
 ## Formatos aceitos
 - Vídeo: mp4 (H.264/AAC) — obrigatório

@@ -677,10 +677,6 @@ const refreshCommodities = () => {
   EXTRAS_CACHE.commodities.updatedAt = Date.now();
 };
 
-const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN;
-const FOOTBALL_DATA_BASE_URL = "https://api.football-data.org/v4/matches";
-const FOOTBALL_DATA_COMPETITIONS = process.env.FOOTBALL_DATA_COMPETITIONS || "2013,2014,2015,2016,2002,2001,2142";
-
 const buildScoreEntry = (options) => ({
   league: options.league,
   home: options.home,
@@ -699,73 +695,9 @@ const mockScores = [
   { league: "Mundial de Clubes", home: "Corinthians", away: "Real Madrid", scoreHome: 1, scoreAway: 2, status: "Finalizado" },
 ];
 
-const normalizeFootballMatch = (match) => {
-  const competition = match?.competition?.name || match?.competition?.code || "Liga";
-  const home = match?.homeTeam?.name || match?.homeTeam?.shortName || match?.homeTeam?.tla || "Time A";
-  const away = match?.awayTeam?.name || match?.awayTeam?.shortName || match?.awayTeam?.tla || "Time B";
-  const fullTime = match?.score?.fullTime || {};
-  const status = match?.status || "Pendente";
-  return buildScoreEntry({
-    league: competition,
-    home,
-    away,
-    scoreHome: typeof fullTime.home === "number" ? fullTime.home : null,
-    scoreAway: typeof fullTime.away === "number" ? fullTime.away : null,
-    status,
-  });
-};
-
-const fetchFootballDataMatches = async () => {
-  if (!FOOTBALL_DATA_TOKEN) {
-    console.warn("[scores] Football Data sem token (FOOTBALL_DATA_TOKEN não definido).");
-    return null;
-  }
-  try {
-    const params = new URLSearchParams();
-    const today = new Date();
-    const dateFrom = new Date(today);
-    dateFrom.setDate(dateFrom.getDate() - 1);
-    const dateTo = new Date(today);
-    dateTo.setDate(dateTo.getDate() + 1);
-    const formatDay = (value) => value.toISOString().slice(0, 10);
-    params.set("competitions", FOOTBALL_DATA_COMPETITIONS);
-    params.set("status", "SCHEDULED,IN_PLAY,FINISHED");
-    params.set("dateFrom", formatDay(dateFrom));
-    params.set("dateTo", formatDay(dateTo));
-    const url = `${FOOTBALL_DATA_BASE_URL}?${params.toString()}`;
-    console.log(`[scores] Football Data solicitando ${url}`);
-    const response = await fetch(url, {
-      headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
-    });
-    if (!response.ok) {
-      const payload = await response.text().catch(() => "");
-      console.warn(
-        `[scores] Football Data respondeu ${response.status} ${response.statusText} (${payload?.slice(
-          0,
-          200
-        ) || "sem corpo"})`
-      );
-      return null;
-    }
-    const payload = await response.json();
-    const matches = Array.isArray(payload?.matches) ? payload.matches : [];
-    if (!matches.length) {
-      console.warn("[scores] Football Data retornou nenhuma partida.");
-      return null;
-    }
-    return matches.slice(0, 6).map(normalizeFootballMatch);
-  } catch (error) {
-    console.error("[scores] Falha ao consultar Football Data:", error.message);
-    return null;
-  }
-};
-
 const refreshScores = async () => {
-  const remoteMatches = await fetchFootballDataMatches();
-  const matchesSource = remoteMatches && remoteMatches.length ? "Football-Data" : "mock";
-  const matches = (remoteMatches && remoteMatches.length ? remoteMatches : mockScores).map((entry) =>
-    buildScoreEntry(entry)
-  );
+  const matchesSource = "mock";
+  const matches = mockScores.map((entry) => buildScoreEntry(entry));
   console.log(`[scores] usando dados de ${matchesSource}.`);
   const leagues = Array.from(new Set(matches.map((match) => match.league).filter(Boolean)));
   EXTRAS_CACHE.scores.data = {
