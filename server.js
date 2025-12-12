@@ -1,4 +1,8 @@
-require("dotenv").config();
+try {
+  require("dotenv").config();
+} catch (_error) {
+  console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
+}
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
