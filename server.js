@@ -8,10 +8,6 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
-const fsPromises = fs.promises;
-const ffmpegStatic = require("ffmpeg-static");
-const { spawn, spawnSync } = require("child_process");
 const OpenAI = require("openai");
 const { renderWeatherPortrait } = require("./weatherScreenshot");
 
@@ -20,16 +16,15 @@ const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
-const rokuDir = path.join(mediaDir, "roku");
+const screenshotDir = path.join(mediaDir, "screenshots");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
 const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
-const weatherPortraitPath = path.join(rokuDir, WEATHER_PORTRAIT_FILENAME);
+const weatherPortraitPath = path.join(screenshotDir, WEATHER_PORTRAIT_FILENAME);
 let weatherPortraitPromise = null;
 const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const tvConfigFile = path.join(__dirname, "tv-config.json");
-const rokuBannersFile = path.join(__dirname, "config", "roku-banners.txt");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
@@ -95,32 +90,6 @@ const cleanOpenAIOutput = (text) => {
   return cleaned;
 };
 
-const optimizeForRoku = async (buffer, originalName) => {
-  if (!Buffer.isBuffer(buffer)) {
-    throw new Error("Buffer inválido para otimização.");
-  }
-  try {
-    const image = sharp(buffer);
-    const metadata = await image.metadata();
-    const width = metadata.width || 0;
-    const height = metadata.height || 0;
-    const needsResize = width > 1280 || height > 720;
-    if (needsResize) {
-      console.log(`[ROKU-OPT] Redimensionando ${originalName} para 1280px, qualidade 70%`);
-    } else {
-      console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720, sem redimensionar`);
-    }
-    const optimized = await image
-      .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 70, progressive: true, chromaSubsampling: "4:2:0" })
-      .toBuffer();
-    return optimized;
-  } catch (error) {
-    console.error(`[ROKU-OPT] Falha ao otimizar ${originalName}:`, error.message);
-    throw new Error("Falha ao processar a imagem para Roku.");
-  }
-};
-
 // Extensões permitidas (vídeo e imagens) para o portal cativo.
 const ALLOWED_EXT = [".mp4", ".jpg", ".jpeg", ".png", ".webp"];
 const MIME_BY_EXT = {
@@ -132,7 +101,7 @@ const MIME_BY_EXT = {
 };
 
 fs.mkdirSync(mediaDir, { recursive: true });
-fs.mkdirSync(rokuDir, { recursive: true });
+fs.mkdirSync(screenshotDir, { recursive: true });
 
 // TVs configuráveis para Roku.
 const normalizeTarget = (value) => {
@@ -152,7 +121,6 @@ const buildAggregateEntry = (targets = {}) => {
   const aggregated = {
     mode: "video",
     items: [],
-    rokuItems: [],
     target: "todas",
     updatedAt: Date.now(),
   };
@@ -163,7 +131,6 @@ const buildAggregateEntry = (targets = {}) => {
       modeCandidate = entry.mode;
     }
     aggregated.items.push(...(entry.items || []));
-    aggregated.rokuItems.push(...(entry.rokuItems || []));
   });
   aggregated.mode = modeCandidate || "video";
   return aggregated;
@@ -185,28 +152,6 @@ const slugifyId = (value) =>
     .replace(/\s+/g, "_")
     .replace(/[^\w-]+/g, "")
     .slice(0, 120);
-
-let ffmpegPath = null;
-let ffmpegChecked = false;
-const resolveFfmpeg = () => {
-  if (ffmpegChecked) return ffmpegPath;
-  ffmpegChecked = true;
-
-  if (ffmpegStatic) {
-    ffmpegPath = ffmpegStatic;
-    return ffmpegPath;
-  }
-
-  try {
-    const result = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" });
-    if (result.status === 0) ffmpegPath = "ffmpeg";
-  } catch (_err) {
-    ffmpegPath = null;
-  }
-
-  if (!ffmpegPath) console.warn("ffmpeg não encontrado; vídeos não serão rotacionados para Roku.");
-  return ffmpegPath;
-};
 
 const storageSingle = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, mediaDir),
@@ -367,7 +312,6 @@ const readMediaConfig = () => {
         ...entry,
         target: normalizedKey,
         items: normalizeItems(entry?.items),
-        rokuItems: normalizeItems(entry?.rokuItems),
       };
     });
     const aggregate = buildAggregateEntry(targets);
@@ -375,7 +319,6 @@ const readMediaConfig = () => {
       ...parsed,
       targets,
       items: aggregate.items,
-      rokuItems: aggregate.rokuItems,
       mode: aggregate.mode,
       updatedAt: parsed.updatedAt || Date.now(),
     };
@@ -385,7 +328,7 @@ const readMediaConfig = () => {
   }
 };
 
-const writeMediaConfig = (target, mode, items = [], rokuItems = [], replaceAll = false) => {
+const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
   const current = readMediaConfig();
   const normalizedTarget = normalizeTarget(target);
   const baseTargets = {};
@@ -397,7 +340,6 @@ const writeMediaConfig = (target, mode, items = [], rokuItems = [], replaceAll =
   nextTargets[normalizedTarget] = {
     mode,
     items,
-    rokuItems,
     target: normalizedTarget,
     updatedAt: Date.now(),
   };
@@ -406,7 +348,6 @@ const writeMediaConfig = (target, mode, items = [], rokuItems = [], replaceAll =
     ...current,
     targets: nextTargets,
     items: aggregate.items,
-    rokuItems: aggregate.rokuItems,
     mode: aggregate.mode,
     updatedAt: Date.now(),
   };
@@ -427,29 +368,6 @@ const resolvePublicBaseUrl = (req) => {
   if (!host) return "";
   const proto = req.get("x-forwarded-proto") || req.protocol || "http";
   return `${proto}://${host}`.replace(/\/+$/, "");
-};
-
-// Feed dinâmico: filtra mídias por target (todas ou valor exato)
-const filterItemsByTarget = (items = [], tipo = "todas") =>
-  (items || []).filter((item) => {
-    const target = normalizeTarget(item?.target);
-    const normalizedTipo = normalizeTarget(tipo);
-    if (target === "todas" || normalizedTipo === "todas") return true;
-    return target === normalizedTipo;
-  });
-
-const buildRokuUrls = (items = [], req) => {
-  const baseUrl = resolvePublicBaseUrl(req);
-  if (!baseUrl) return [];
-
-  return (items || [])
-    .filter((item) => item?.path)
-    .map((item) => {
-      const fullUrl = new URL(item.path, `${baseUrl}/`);
-      const cacheBust = Math.floor(item.updatedAt || Date.now());
-      fullUrl.searchParams.set("t", cacheBust);
-      return fullUrl.toString();
-    });
 };
 
 // TVs configuráveis para Roku
@@ -486,32 +404,6 @@ const normalizeTvPayload = (body = {}, keepId = false) => {
   return { id, nome, tipo, marca };
 };
 
-const refreshRokuBanners = (items = [], req) => {
-  const assets = (items || [])
-    .filter((item) => item?.path)
-    .filter((item) => item.path.startsWith("/media/roku/"));
-  if (!assets.length) return [];
-
-  const baseUrl = resolvePublicBaseUrl(req);
-  if (!baseUrl) throw new Error("Base pública não definida para gerar links do Roku.");
-
-  const lines = assets.map((item) => {
-    const fullUrl = new URL(item.path, `${baseUrl}/`);
-    const cacheBust = Math.floor(item.updatedAt || Date.now());
-    fullUrl.searchParams.set("t", cacheBust);
-    return fullUrl.toString();
-  });
-
-  try {
-    fs.writeFileSync(rokuBannersFile, lines.join("\n"));
-  } catch (error) {
-    console.error("Erro ao gravar roku-banners.txt:", error.message);
-    throw error;
-  }
-
-  return lines;
-};
-
 const summarizeFile = (fileName, target = "todas") => {
   const fullPath = path.join(mediaDir, fileName);
   const stats = fs.statSync(fullPath);
@@ -524,108 +416,6 @@ const summarizeFile = (fileName, target = "todas") => {
     target: normalizeTarget(target),
   };
 };
-
-const processVideoForRoku = (item) =>
-  new Promise((resolve) => {
-    if (!item?.path || !(item.mime || "").toLowerCase().startsWith("video/")) return resolve(null);
-    const ffmpegBin = resolveFfmpeg();
-    if (!ffmpegBin) return resolve(null);
-
-    const originalName = path.basename(item.path);
-    const originalFsPath = path.join(mediaDir, originalName);
-    if (!fs.existsSync(originalFsPath)) return resolve(null);
-
-    const ext = (path.extname(originalName) || ".mp4").toLowerCase();
-    const base = path.basename(originalName, ext);
-    const rokuFileName = `${base}-roku${ext}`;
-    const rokuFsPath = path.join(rokuDir, rokuFileName);
-
-    const ffmpegArgs = [
-      "-y",
-      "-i",
-      originalFsPath,
-      "-vf",
-      "transpose=1",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "ultrafast",
-      "-crf",
-      "23",
-      "-c:a",
-      "copy",
-      "-movflags",
-      "+faststart",
-      rokuFsPath,
-    ];
-
-    const proc = spawn(ffmpegBin, ffmpegArgs, { stdio: "ignore" });
-    proc.on("error", (err) => {
-      console.warn("ffmpeg falhou ao gerar vídeo para Roku:", err.message);
-      resolve(null);
-    });
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        console.warn("ffmpeg terminou com erro ao gerar vídeo para Roku (código", code, ")");
-        return resolve(null);
-      }
-      try {
-        const stats = fs.statSync(rokuFsPath);
-        resolve({
-          path: `/media/roku/${rokuFileName}`,
-          mime: item.mime,
-          size: stats.size,
-          updatedAt: stats.mtimeMs,
-          target: normalizeTarget(item.target),
-        });
-      } catch (error) {
-        console.warn("Erro ao ler vídeo Roku gerado:", error.message);
-        resolve(null);
-      }
-    });
-  });
-
-async function generateRokuAssets(items = []) {
-  const outputs = [];
-
-  for (const item of items) {
-    if (!item?.path) continue;
-
-    const isImage = (item.mime || "").toLowerCase().startsWith("image/");
-    const isVideo = (item.mime || "").toLowerCase().startsWith("video/");
-
-    if (isImage) {
-      const originalName = path.basename(item.path);
-      const originalFsPath = path.join(mediaDir, originalName);
-      if (!fs.existsSync(originalFsPath)) continue;
-
-      const base = path.basename(originalName, path.extname(originalName));
-      const rokuFileName = `${base}-roku.jpeg`;
-      const rokuFsPath = path.join(rokuDir, rokuFileName);
-
-      const buffer = await fsPromises.readFile(originalFsPath);
-      const optimizedBuffer = await optimizeForRoku(buffer, originalName);
-      await fsPromises.writeFile(rokuFsPath, optimizedBuffer);
-
-      const stats = fs.statSync(rokuFsPath);
-      outputs.push({
-        path: `/media/roku/${rokuFileName}`,
-        mime: "image/jpeg",
-        size: stats.size,
-        updatedAt: stats.mtimeMs,
-        target: normalizeTarget(item.target),
-      });
-      continue;
-    }
-
-    if (isVideo) {
-      const video = await processVideoForRoku(item);
-      if (video) outputs.push(video);
-    }
-  }
-
-  return outputs;
-}
 
 const cleanupKeeping = (keepList) => {
   const keepSet = new Set(keepList);
@@ -727,23 +517,6 @@ const touchCache = async (key, refresher) => {
   return cache.data;
 };
 
-const cleanupRokuKeeping = (keepList) => {
-  const keepSet = new Set(keepList);
-  if (!fs.existsSync(rokuDir)) return;
-  const entries = fs.readdirSync(rokuDir);
-  for (const entry of entries) {
-    if (keepSet.has(entry)) continue;
-    const targetPath = path.join(rokuDir, entry);
-    try {
-      const stats = fs.lstatSync(targetPath);
-      if (stats.isDirectory()) continue;
-      fs.unlinkSync(targetPath);
-    } catch (error) {
-      console.warn(`Não foi possível remover ${entry} da pasta Roku:`, error.message);
-    }
-  }
-};
-
 const readPromos = () => {
   try {
     if (!fs.existsSync(promosFile)) return [];
@@ -838,7 +611,7 @@ app.get("/api/roku/weather-portrait", async (req, res) => {
     const timestamp = Math.floor(stats.mtimeMs || Date.now());
     return res.json({
       ok: true,
-      url: `/media/roku/${WEATHER_PORTRAIT_FILENAME}?t=${timestamp}`,
+      url: `/media/screenshots/${WEATHER_PORTRAIT_FILENAME}?t=${timestamp}`,
     });
   } catch (error) {
     console.error("Erro ao gerar retrato do tempo para Roku:", error.message);
@@ -1488,37 +1261,6 @@ app.put("/api/roku/tvs/:id", requireUploadAuth, (req, res) => {
   }
 });
 
-app.get("/roku-banners.txt", (req, res) => {
-  const tipo = normalizeTarget(req.query?.tipo || "todas");
-
-  // Feed dinâmico de banners para Roku por tipo de TV
-  let lines = [];
-  try {
-    const config = readMediaConfig();
-    const sourceItems = Array.isArray(config.rokuItems) ? config.rokuItems : [];
-    const filtered = filterItemsByTarget(sourceItems, tipo).filter((item) =>
-      (item?.path || "").startsWith("/media/roku/")
-    );
-    lines = buildRokuUrls(filtered, req);
-  } catch (error) {
-    console.error("Erro ao gerar feed dinâmico do Roku:", error.message);
-  }
-
-  // Fallback para arquivo txt caso algo dê errado ou não haja mídias
-  if (!lines || !lines.length) {
-    try {
-      const data = fs.readFileSync(rokuBannersFile, "utf8");
-      lines = data ? data.split(/\r?\n/).filter(Boolean) : [];
-    } catch (err) {
-      console.error("Erro ao ler roku-banners.txt (fallback):", err.message);
-      lines = [];
-    }
-  }
-
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.status(200).send((lines || []).join("\n"));
-});
-
 app.get("/api/info", (req, res) => {
   const target = normalizeTarget(req.query?.target || "todas");
   const config = readMediaConfig();
@@ -1589,22 +1331,10 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
 
   const item = summarizeFile(req.file.filename, target);
   const items = [item];
-  let rokuItems = [];
   try {
-    rokuItems = await generateRokuAssets(items);
-  } catch (error) {
-    console.error("Erro ao gerar assets para Roku:", error.message);
-    return res.status(500).json({ ok: false, error: "Falha ao processar a imagem para Roku." });
-  }
-  const itemsForRoku = rokuItems.length ? rokuItems : items;
-
-  try {
-    const nextConfig = writeMediaConfig(target, mode, items, itemsForRoku, target === "todas");
+    const nextConfig = writeMediaConfig(target, mode, items, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
-    const keepRokuFiles = collectReferencedFilenames(nextConfig.rokuItems);
     cleanupKeeping(keepMediaFiles);
-    cleanupRokuKeeping(keepRokuFiles);
-    refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
       .status(500)
@@ -1636,22 +1366,10 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
   const target = normalizeTarget(req.body?.target);
   const filenames = files.map((file) => file.filename);
   const items = filenames.map((fileName) => summarizeFile(fileName, target));
-  let rokuItems = [];
   try {
-    rokuItems = await generateRokuAssets(items);
-  } catch (error) {
-    console.error("Erro ao gerar assets para Roku (carrossel):", error.message);
-    return res.status(500).json({ ok: false, error: "Falha ao processar a imagem para Roku." });
-  }
-  const itemsForRoku = rokuItems.length ? rokuItems : items;
-
-  try {
-    const nextConfig = writeMediaConfig(target, "carousel", items, itemsForRoku, target === "todas");
+    const nextConfig = writeMediaConfig(target, "carousel", items, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
-    const keepRokuFiles = collectReferencedFilenames(nextConfig.rokuItems);
     cleanupKeeping(keepMediaFiles);
-    cleanupRokuKeeping(keepRokuFiles);
-    refreshRokuBanners(itemsForRoku, req);
   } catch (error) {
     return res
       .status(500)

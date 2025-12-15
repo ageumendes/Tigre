@@ -1,7 +1,7 @@
 const path = require("path");
 const { renderWeatherPortrait } = require("../weatherScreenshot");
 
-const mediaDir = path.join(__dirname, "..", "media", "roku");
+const mediaDir = path.join(__dirname, "..", "media", "screenshots");
 const destination = path.join(mediaDir, "weather-portrait.jpeg");
 
 (async () => {

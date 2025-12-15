@@ -2,130 +2,56 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1765563919813-72b6d2.jpeg",
+      "path": "/media/carousel-1765835963913-150ace.jpeg",
       "mime": "image/jpeg",
-      "size": 291071,
-      "updatedAt": 1765563919818.5725,
+      "size": 299628,
+      "updatedAt": 1765835963917.541,
       "target": "todas"
     },
     {
-      "path": "/media/carousel-1765563919818-8a41cb.jpeg",
+      "path": "/media/carousel-1765835963917-8ed8aa.jpeg",
       "mime": "image/jpeg",
-      "size": 265327,
-      "updatedAt": 1765563919821.5725,
+      "size": 265093,
+      "updatedAt": 1765835963920.541,
       "target": "todas"
     },
     {
-      "path": "/media/carousel-1765563919821-a6e098.jpeg",
+      "path": "/media/carousel-1765835963921-e79246.jpeg",
       "mime": "image/jpeg",
-      "size": 300877,
-      "updatedAt": 1765563919822.5725,
-      "target": "todas"
-    },
-    {
-      "path": "/media/carousel-1765563919822-9f4cc9.jpeg",
-      "mime": "image/jpeg",
-      "size": 259964,
-      "updatedAt": 1765563919824.5723,
+      "size": 245507,
+      "updatedAt": 1765835963922.5408,
       "target": "todas"
     }
   ],
-  "rokuItems": [
-    {
-      "path": "/media/roku/carousel-1765563919813-72b6d2-roku.jpeg",
-      "mime": "image/jpeg",
-      "size": 64723,
-      "updatedAt": 1765563919899.5693,
-      "target": "todas"
-    },
-    {
-      "path": "/media/roku/carousel-1765563919818-8a41cb-roku.jpeg",
-      "mime": "image/jpeg",
-      "size": 55695,
-      "updatedAt": 1765563919933.568,
-      "target": "todas"
-    },
-    {
-      "path": "/media/roku/carousel-1765563919821-a6e098-roku.jpeg",
-      "mime": "image/jpeg",
-      "size": 66821,
-      "updatedAt": 1765563919964.567,
-      "target": "todas"
-    },
-    {
-      "path": "/media/roku/carousel-1765563919822-9f4cc9-roku.jpeg",
-      "mime": "image/jpeg",
-      "size": 59924,
-      "updatedAt": 1765563919997.5657,
-      "target": "todas"
-    }
-  ],
-  "updatedAt": 1765563919998,
+  "updatedAt": 1765835964037,
   "targets": {
     "todas": {
       "mode": "carousel",
       "items": [
         {
-          "path": "/media/carousel-1765563919813-72b6d2.jpeg",
+          "path": "/media/carousel-1765835963913-150ace.jpeg",
           "mime": "image/jpeg",
-          "size": 291071,
-          "updatedAt": 1765563919818.5725,
+          "size": 299628,
+          "updatedAt": 1765835963917.541,
           "target": "todas"
         },
         {
-          "path": "/media/carousel-1765563919818-8a41cb.jpeg",
+          "path": "/media/carousel-1765835963917-8ed8aa.jpeg",
           "mime": "image/jpeg",
-          "size": 265327,
-          "updatedAt": 1765563919821.5725,
+          "size": 265093,
+          "updatedAt": 1765835963920.541,
           "target": "todas"
         },
         {
-          "path": "/media/carousel-1765563919821-a6e098.jpeg",
+          "path": "/media/carousel-1765835963921-e79246.jpeg",
           "mime": "image/jpeg",
-          "size": 300877,
-          "updatedAt": 1765563919822.5725,
-          "target": "todas"
-        },
-        {
-          "path": "/media/carousel-1765563919822-9f4cc9.jpeg",
-          "mime": "image/jpeg",
-          "size": 259964,
-          "updatedAt": 1765563919824.5723,
-          "target": "todas"
-        }
-      ],
-      "rokuItems": [
-        {
-          "path": "/media/roku/carousel-1765563919813-72b6d2-roku.jpeg",
-          "mime": "image/jpeg",
-          "size": 64723,
-          "updatedAt": 1765563919899.5693,
-          "target": "todas"
-        },
-        {
-          "path": "/media/roku/carousel-1765563919818-8a41cb-roku.jpeg",
-          "mime": "image/jpeg",
-          "size": 55695,
-          "updatedAt": 1765563919933.568,
-          "target": "todas"
-        },
-        {
-          "path": "/media/roku/carousel-1765563919821-a6e098-roku.jpeg",
-          "mime": "image/jpeg",
-          "size": 66821,
-          "updatedAt": 1765563919964.567,
-          "target": "todas"
-        },
-        {
-          "path": "/media/roku/carousel-1765563919822-9f4cc9-roku.jpeg",
-          "mime": "image/jpeg",
-          "size": 59924,
-          "updatedAt": 1765563919997.5657,
+          "size": 245507,
+          "updatedAt": 1765835963922.5408,
           "target": "todas"
         }
       ],
       "target": "todas",
-      "updatedAt": 1765563919998
+      "updatedAt": 1765835964037
     }
   }
 }
