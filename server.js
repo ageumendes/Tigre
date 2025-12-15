@@ -13,6 +13,7 @@ const fsPromises = fs.promises;
 const ffmpegStatic = require("ffmpeg-static");
 const { spawn, spawnSync } = require("child_process");
 const OpenAI = require("openai");
+const { renderWeatherPortrait } = require("./weatherScreenshot");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +21,10 @@ const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
 const rokuDir = path.join(mediaDir, "roku");
+const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
+const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
+const weatherPortraitPath = path.join(rokuDir, WEATHER_PORTRAIT_FILENAME);
+let weatherPortraitPromise = null;
 const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
@@ -782,6 +787,31 @@ const isPromoActive = (promo) => {
   return until >= Date.now();
 };
 
+const isWeatherPortraitFresh = (stats) =>
+  stats && Date.now() - stats.mtimeMs < WEATHER_PORTRAIT_CACHE_MS;
+
+const ensureWeatherPortraitReady = async (baseUrl) => {
+  if (!baseUrl) throw new Error("Base pública não definida para gerar o retrato.");
+  if (fs.existsSync(weatherPortraitPath)) {
+    const existing = fs.statSync(weatherPortraitPath);
+    if (isWeatherPortraitFresh(existing)) {
+      return existing;
+    }
+  }
+
+  if (!weatherPortraitPromise) {
+    weatherPortraitPromise = renderWeatherPortrait({
+      baseUrl,
+      outPath: weatherPortraitPath,
+    }).finally(() => {
+      weatherPortraitPromise = null;
+    });
+  }
+
+  await weatherPortraitPromise;
+  return fs.statSync(weatherPortraitPath);
+};
+
 // Feed de Roku: gera dinamicamente por tipo de TV (todas ou tipos definidos) com fallback para arquivo txt legado.
 app.get("/api/roku/tvs", (_req, res) => {
   try {
@@ -790,6 +820,25 @@ app.get("/api/roku/tvs", (_req, res) => {
   } catch (error) {
     console.error("Erro ao listar TVs:", error.message);
     return res.status(500).json({ ok: false, tvs: [] });
+  }
+});
+
+app.get("/api/roku/weather-portrait", async (req, res) => {
+  const baseUrl = resolvePublicBaseUrl(req);
+  if (!baseUrl) {
+    return res.status(500).json({ ok: false, error: "Base pública não definida." });
+  }
+
+  try {
+    const stats = await ensureWeatherPortraitReady(baseUrl);
+    const timestamp = Math.floor(stats.mtimeMs || Date.now());
+    return res.json({
+      ok: true,
+      url: `/media/roku/${WEATHER_PORTRAIT_FILENAME}?t=${timestamp}`,
+    });
+  } catch (error) {
+    console.error("Erro ao gerar retrato do tempo para Roku:", error.message);
+    return res.status(500).json({ ok: false, error: error.message || "Erro ao gerar retrato." });
   }
 });
 
