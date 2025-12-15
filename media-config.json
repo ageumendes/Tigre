@@ -1,57 +1,29 @@
 {
-  "mode": "carousel",
+  "mode": "image",
   "items": [
     {
-      "path": "/media/carousel-1765835963913-150ace.jpeg",
-      "mime": "image/jpeg",
-      "size": 299628,
-      "updatedAt": 1765835963917.541,
-      "target": "todas"
-    },
-    {
-      "path": "/media/carousel-1765835963917-8ed8aa.jpeg",
-      "mime": "image/jpeg",
-      "size": 265093,
-      "updatedAt": 1765835963920.541,
-      "target": "todas"
-    },
-    {
-      "path": "/media/carousel-1765835963921-e79246.jpeg",
-      "mime": "image/jpeg",
-      "size": 245507,
-      "updatedAt": 1765835963922.5408,
+      "path": "/media/latest-image.png",
+      "mime": "image/png",
+      "size": 2224288,
+      "updatedAt": 1765837433273.8237,
       "target": "todas"
     }
   ],
-  "updatedAt": 1765835964037,
+  "updatedAt": 1765837433276,
   "targets": {
     "todas": {
-      "mode": "carousel",
+      "mode": "image",
       "items": [
         {
-          "path": "/media/carousel-1765835963913-150ace.jpeg",
-          "mime": "image/jpeg",
-          "size": 299628,
-          "updatedAt": 1765835963917.541,
-          "target": "todas"
-        },
-        {
-          "path": "/media/carousel-1765835963917-8ed8aa.jpeg",
-          "mime": "image/jpeg",
-          "size": 265093,
-          "updatedAt": 1765835963920.541,
-          "target": "todas"
-        },
-        {
-          "path": "/media/carousel-1765835963921-e79246.jpeg",
-          "mime": "image/jpeg",
-          "size": 245507,
-          "updatedAt": 1765835963922.5408,
+          "path": "/media/latest-image.png",
+          "mime": "image/png",
+          "size": 2224288,
+          "updatedAt": 1765837433273.8237,
           "target": "todas"
         }
       ],
       "target": "todas",
-      "updatedAt": 1765835964037
+      "updatedAt": 1765837433276
     }
   }
 }
