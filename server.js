@@ -105,12 +105,17 @@ const optimizeForRoku = async (buffer, originalName) => {
     const width = metadata.width || 0;
     const height = metadata.height || 0;
     const needsResize = width > 1280 || height > 720;
+    const shouldRotate = width > height;
     if (needsResize) {
       console.log(`[ROKU-OPT] Redimensionando ${originalName} para 1280px, qualidade 70%`);
     } else {
       console.log(`[ROKU-OPT] ${originalName} já está abaixo de 1280x720, sem redimensionar`);
     }
+    if (shouldRotate) {
+      console.log(`[ROKU-OPT] Rotacionando ${originalName} antes de otimizar.`);
+    }
     const optimized = await image
+      .rotate(shouldRotate ? 90 : 0)
       .resize({ width: 1280, height: 720, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 70, progressive: true, chromaSubsampling: "4:2:0" })
       .toBuffer();
