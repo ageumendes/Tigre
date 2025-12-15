@@ -729,13 +729,17 @@ const touchCache = async (key, refresher) => {
 
 const cleanupRokuKeeping = (keepList) => {
   const keepSet = new Set(keepList);
-  const files = fs.readdirSync(rokuDir);
-  for (const file of files) {
-    if (keepSet.has(file)) continue;
+  if (!fs.existsSync(rokuDir)) return;
+  const entries = fs.readdirSync(rokuDir);
+  for (const entry of entries) {
+    if (keepSet.has(entry)) continue;
+    const targetPath = path.join(rokuDir, entry);
     try {
-      fs.unlinkSync(path.join(rokuDir, file));
+      const stats = fs.lstatSync(targetPath);
+      if (stats.isDirectory()) continue;
+      fs.unlinkSync(targetPath);
     } catch (error) {
-      console.warn(`Não foi possível remover ${file} da pasta Roku:`, error.message);
+      console.warn(`Não foi possível remover ${entry} da pasta Roku:`, error.message);
     }
   }
 };
