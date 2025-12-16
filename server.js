@@ -7,6 +7,7 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const OpenAI = require("openai");
 const { renderWeatherPortrait } = require("./weatherScreenshot");
@@ -25,10 +26,14 @@ const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const tvConfigFile = path.join(__dirname, "tv-config.json");
+const weatherCallRecordFile = path.join(os.tmpdir(), "tigre-weather-call.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
+const WEATHER_MEDIA_BASE_URL = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+const WEATHER_MEDIA_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+const WEATHER_MEDIA_TARGET = "previsaodotempo";
+const WEATHER_API_ENABLED = process.env.ENABLE_WEATHER_API === "true";
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
-const DEFAULT_UPLOAD_PASSWORD = process.env.UPLOAD_PASSWORD || "Tigre@12.";
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -37,6 +42,38 @@ const SUPPORTED_EVENT_TYPES = new Set([
   "download_clicked",
   "share_clicked",
 ]);
+
+const ensureNumber = (value) =>
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
+const readWeatherCallRecord = () => {
+  try {
+    if (!fs.existsSync(weatherCallRecordFile)) return { lastCall: 0, lastSuccess: 0 };
+    const raw = fs.readFileSync(weatherCallRecordFile, "utf8");
+    if (!raw) return { lastCall: 0, lastSuccess: 0 };
+    const parsed = JSON.parse(raw);
+    return {
+      lastCall: ensureNumber(parsed?.lastCall),
+      lastSuccess: ensureNumber(parsed?.lastSuccess),
+    };
+  } catch (error) {
+    console.warn("Falha ao ler registro de chamadas da previsão:", error.message);
+    return { lastCall: 0, lastSuccess: 0 };
+  }
+};
+const writeWeatherCallRecord = () => {
+  try {
+    fs.writeFileSync(
+      weatherCallRecordFile,
+      JSON.stringify({
+        lastCall: lastWeatherApiCallAt,
+        lastSuccess: lastWeatherSuccessAt,
+      }),
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("Falha ao gravar registro de chamadas da previsão:", error.message);
+  }
+};
 
 const openaiKey = process.env.OPENAI_API_KEY;
 let openai = null;
@@ -52,7 +89,16 @@ let cachedAt = 0;
 const CACHE_MS = 15 * 60 * 1000; // 15 minutos
 let cachedWeather = null;
 let cachedWeatherAt = 0;
-const WEATHER_CACHE_MS = 10 * 60 * 1000; // 10 minutos
+const WEATHER_CACHE_MS = 60 * 60 * 1000; // 1 hora
+const WEATHER_FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
+const WEATHER_API_CALL_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
+let lastWeatherApiCallAt = 0;
+let lastWeatherSuccessAt = 0;
+({
+  lastCall: lastWeatherApiCallAt,
+  lastSuccess: lastWeatherSuccessAt,
+} = readWeatherCallRecord());
+let weatherFailureCooldownUntil = 0;
 let cachedScores = null;
 let cachedScoresAt = 0;
 const CACHE_SCORES_MS = 2 * 60 * 1000;
@@ -75,6 +121,22 @@ const CATTLE_CATEGORIES = [
   "Novilha gorda",
   "Novilha precoce",
 ];
+
+const padTwo = (value) => value.toString().padStart(2, "0");
+const getLocalDateTimeInfo = () => {
+  const now = new Date();
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absMinutes = Math.abs(offsetMinutes);
+  const hoursOffset = Math.floor(absMinutes / 60);
+  const minutesOffset = absMinutes % 60;
+  return {
+    iso: now.toISOString(),
+    localDate: now.toISOString().slice(0, 10),
+    localTime: `${padTwo(now.getHours())}:${padTwo(now.getMinutes())}`,
+    timezoneLabel: `${sign}${padTwo(hoursOffset)}:${padTwo(minutesOffset)}`,
+  };
+};
 
 const cleanOpenAIOutput = (text) => {
   if (!text) return "";
@@ -104,6 +166,7 @@ fs.mkdirSync(mediaDir, { recursive: true });
 fs.mkdirSync(screenshotDir, { recursive: true });
 
 // TVs configuráveis para Roku.
+
 const normalizeTarget = (value) => {
   const val = typeof value === "string" ? value.trim().toLowerCase() : "";
   return val || "todas";
@@ -112,9 +175,21 @@ const targetSuffix = (value) => {
   const normalized = normalizeTarget(value);
   return normalized === "todas" ? "" : `-${slugifyId(normalized)}`;
 };
+const ensureVisivelValue = (value, target) => {
+  if (typeof value === "boolean") return value;
+  const defaultVisible = target === WEATHER_MEDIA_TARGET ? false : true;
+  return defaultVisible;
+};
 const normalizeItems = (items = []) =>
   Array.isArray(items)
-    ? items.map((item) => ({ ...item, target: normalizeTarget(item?.target) }))
+    ? items.map((item) => {
+        const normalizedTarget = normalizeTarget(item?.target);
+        return {
+          ...item,
+          target: normalizedTarget,
+          visivel: ensureVisivelValue(item?.visivel, normalizedTarget),
+        };
+      })
     : [];
 
 const buildAggregateEntry = (targets = {}) => {
@@ -276,7 +351,7 @@ const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0
 
 // Middleware simples para exigir senha no upload. Use a variável de ambiente UPLOAD_PASSWORD para trocar o valor.
 const requireUploadAuth = (req, res, next) => {
-  const secret = DEFAULT_UPLOAD_PASSWORD;
+  const secret = process.env.UPLOAD_PASSWORD;
   const provided = req.headers["x-upload-password"];
   if (!secret) {
     return res.status(500).json({ ok: false, message: "Senha de upload não configurada no servidor." });
@@ -337,9 +412,10 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
     baseTargets[key] = value;
   });
   const nextTargets = replaceAll ? {} : { ...baseTargets };
+  const safeItems = normalizeItems(items);
   nextTargets[normalizedTarget] = {
     mode,
-    items,
+    items: safeItems,
     target: normalizedTarget,
     updatedAt: Date.now(),
   };
@@ -359,6 +435,47 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
   }
   return nextConfig;
 };
+
+const setWeatherTargetVisibility = (visible) => {
+  const config = readMediaConfig();
+  const entry = config.targets?.[WEATHER_MEDIA_TARGET];
+  if (!entry || !Array.isArray(entry.items)) return null;
+  const mode = entry.mode || "image";
+  const alreadyMatching = entry.items.every((item) => item.visivel === visible);
+  if (alreadyMatching) return entry;
+  const updatedItems = entry.items.map((item) => ({
+    ...item,
+    visivel: ensureVisivelValue(visible, WEATHER_MEDIA_TARGET),
+  }));
+  return writeMediaConfig(WEATHER_MEDIA_TARGET, mode, updatedItems);
+};
+
+const markWeatherTargetFailure = () => {
+  setWeatherTargetVisibility(false);
+  lastWeatherSuccessAt = 0;
+  writeWeatherCallRecord();
+  weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+};
+
+const resetWeatherFailureState = () => {
+  weatherFailureCooldownUntil = 0;
+};
+
+const canCallWeatherApi = () =>
+  lastWeatherApiCallAt === 0 || Date.now() - lastWeatherApiCallAt >= WEATHER_API_CALL_INTERVAL_MS;
+const recordWeatherApiCall = () => {
+  lastWeatherApiCallAt = Date.now();
+  writeWeatherCallRecord();
+};
+const recordWeatherSuccess = () => {
+  lastWeatherSuccessAt = Date.now();
+  writeWeatherCallRecord();
+};
+
+const applyWeatherVisibilityStateFromRecord = () => {
+  setWeatherTargetVisibility(lastWeatherSuccessAt > 0);
+};
+applyWeatherVisibilityStateFromRecord();
 
 // Gera a base pública para links do Roku (usa PUBLIC_BASE_URL ou host do request).
 const resolvePublicBaseUrl = (req) => {
@@ -404,16 +521,29 @@ const normalizeTvPayload = (body = {}, keepId = false) => {
   return { id, nome, tipo, marca };
 };
 
+const applyDisplayMetadata = (target, overrides = {}) => {
+  const base = {
+    exibicao: overrides.exibicao ?? "10s",
+    intervalo:
+      overrides.intervalo ??
+      (normalizeTarget(target) === WEATHER_MEDIA_TARGET ? "5m" : ""),
+  };
+  return { ...base, ...overrides };
+};
+
 const summarizeFile = (fileName, target = "todas") => {
   const fullPath = path.join(mediaDir, fileName);
   const stats = fs.statSync(fullPath);
   const ext = (path.extname(fileName) || "").toLowerCase();
+  const normalizedTarget = normalizeTarget(target);
   return {
     path: `/media/${fileName}`,
     mime: getMimeFromExt(ext),
     size: stats.size,
     updatedAt: stats.mtimeMs,
-    target: normalizeTarget(target),
+    target: normalizedTarget,
+    visivel: ensureVisivelValue(undefined, normalizedTarget),
+    ...applyDisplayMetadata(target),
   };
 };
 
@@ -589,6 +719,80 @@ const ensureWeatherPortraitReady = async (baseUrl) => {
   return fs.statSync(weatherPortraitPath);
 };
 
+const updateWeatherMediaTarget = () => {
+  if (!fs.existsSync(weatherPortraitPath)) {
+    console.warn("Retrato do tempo ainda não gerado; aguardando próxima tentativa.");
+    return null;
+  }
+  const relativePath = path.relative(mediaDir, weatherPortraitPath);
+  if (!relativePath || relativePath.includes("..")) {
+    console.warn("Caminho do retrato do tempo inválido:", weatherPortraitPath);
+    return null;
+  }
+  const item = summarizeFile(relativePath, WEATHER_MEDIA_TARGET);
+  item.visivel = true;
+  try {
+    const nextConfig = writeMediaConfig(WEATHER_MEDIA_TARGET, "image", [item]);
+    resetWeatherFailureState();
+    recordWeatherSuccess();
+    return nextConfig;
+  } catch (error) {
+    console.error("Erro ao atualizar media-config.json com previsão:", error.message);
+    return null;
+  }
+};
+
+const triggerForecastRefresh = async () => {
+  if (!WEATHER_MEDIA_BASE_URL) {
+    console.warn("PUBLIC_BASE_URL indefinido; não há como consultar /api/previsao automaticamente.");
+    return null;
+  }
+  if (typeof fetch !== "function") {
+    console.warn("fetch não disponível no ambiente; a previsão não será solicitada automaticamente.");
+    return null;
+  }
+  const url = `${WEATHER_MEDIA_BASE_URL}/api/previsao?_=${Date.now()}`;
+  try {
+    await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+  } catch (error) {
+    console.warn(`[forecast-refresh] falha ao chamar ${url}:`, error.message);
+  }
+};
+
+const refreshWeatherMediaAssets = async () => {
+  if (!WEATHER_API_ENABLED) {
+    console.warn("Atualização automática da previsão desativada (ENABLE_WEATHER_API != true).");
+    return null;
+  }
+  await triggerForecastRefresh();
+  await ensureWeatherPortraitReady(WEATHER_MEDIA_BASE_URL);
+  const updated = updateWeatherMediaTarget();
+  if (!updated) {
+    throw new Error("Falha ao atualizar o target de previsão do tempo.");
+  }
+  return updated;
+};
+
+const scheduleWeatherMediaRefresh = () => {
+  if (!WEATHER_MEDIA_BASE_URL) {
+    console.warn("Base da mídia do tempo indefinida; desabilitando atualização automática.");
+    return;
+  }
+  if (!WEATHER_API_ENABLED) {
+    console.warn("Agendamento automático de previsão desativado via ENABLE_WEATHER_API.");
+    return;
+  }
+  const runner = () => {
+    if (Date.now() < weatherFailureCooldownUntil) return;
+    refreshWeatherMediaAssets().catch((error) => {
+      console.error("Erro ao atualizar mídia do tempo:", error.message);
+      markWeatherTargetFailure();
+    });
+  };
+  runner();
+  setInterval(runner, WEATHER_MEDIA_REFRESH_INTERVAL_MS);
+};
+
 // Feed de Roku: gera dinamicamente por tipo de TV (todas ou tipos definidos) com fallback para arquivo txt legado.
 app.get("/api/roku/tvs", (_req, res) => {
   try {
@@ -629,7 +833,9 @@ app.get("/api/cotacoes-agro", async (_req, res) => {
     return res.json(cachedQuotes);
   }
 
+  const { localDate, localTime, timezoneLabel } = getLocalDateTimeInfo();
   const prompt = `
+Data e hora da solicitação: ${localDate} ${localTime} (UTC${timezoneLabel})
 Quero as cotações ATUAIS no Brasil para os itens abaixo, priorizando a região de Seringueiras – Rondônia:
 
 1. Café arábica (saca 60kg)
@@ -717,6 +923,7 @@ Nunca retorne 0 (zero). Use null apenas quando não houver dado confiável e exp
         .map((item) => `- ${item.nome} (${item.unidade || "unidade"})`)
         .join("\n");
       const promptBrasil = `
+Data e hora da solicitação (fallback): ${localDate} ${localTime} (UTC${timezoneLabel})
 Quero preços MÉDIOS BRASIL para os seguintes itens agropecuários no formato exato indicado.
 
 ${nomesItens}
@@ -826,7 +1033,10 @@ app.get("/api/cotacoes-gado", async (_req, res) => {
     return res.json(cachedCattle);
   }
 
+  const { localDate, localTime, timezoneLabel } = getLocalDateTimeInfo();
+
   const prompt = `
+Data e hora da solicitação: ${localDate} ${localTime} (UTC${timezoneLabel})
 Use busca web no Boletim Diário de Preços do Estado de São Paulo e responda apenas com JSON no formato abaixo:
 {
   "dataAtual": "AAAA-MM-DD",
@@ -896,6 +1106,7 @@ Nunca use preço = 0. Se não encontrar, coloque null e explique no obs.
     if (semPreco.length) {
       const nomes = semPreco.map((item) => `- ${item.nome}`).join("\n");
       const promptBrasil = `
+Data e hora da solicitação (fallback): ${localDate} ${localTime} (UTC${timezoneLabel})
 Informe preços médios Brasil (CEPEA/Safras) para as categorias abaixo, respondendo apenas em JSON:
 {
   "categorias": [
@@ -978,11 +1189,33 @@ app.get("/api/previsao", async (_req, res) => {
     return res.status(400).json({ error: "OPENAI_API_KEY not set" });
   }
 
+  if (!WEATHER_API_ENABLED) {
+    return res.status(503).json({ error: "Consultas OpenAI para previsão estão desativadas temporariamente." });
+  }
+
+  if (Date.now() < weatherFailureCooldownUntil) {
+    console.warn("[previsao] cooldown ativo; pulando tentativa para evitar limite.");
+    return res
+      .status(503)
+      .json({ error: "Previsão temporariamente indisponível; tente novamente em alguns minutos." });
+  }
+
   if (cachedWeather && Date.now() - cachedWeatherAt < WEATHER_CACHE_MS) {
     return res.json(cachedWeather);
   }
 
+  if (!canCallWeatherApi()) {
+    return res
+      .status(429)
+      .json({ error: "Limite de consultas para previsão atingido (1 hora). Tente novamente mais tarde." });
+  }
+
+  recordWeatherApiCall();
+
+  const { localDate, localTime, timezoneLabel } = getLocalDateTimeInfo();
+
   const prompt = `
+Data e hora local da requisição: ${localDate} ${localTime} (UTC${timezoneLabel})
 Você é um meteorologista digital. Usando busca web, responda apenas em JSON (sem markdown):
 {
   "cidade": "Seringueiras",
@@ -1034,6 +1267,7 @@ Além da previsão atual e das próximas horas, inclua também a previsão compl
     const outputText = stripCodeBlock(rawOutput);
     if (!outputText.trim()) {
       console.error("[previsao] resposta sem texto");
+      markWeatherTargetFailure();
       return res.status(500).json({ error: "Falha ao obter previsão." });
     }
     let json;
@@ -1041,13 +1275,16 @@ Além da previsão atual e das próximas horas, inclua também a previsão compl
       json = JSON.parse(outputText);
     } catch (parseError) {
       console.error("[previsao] parse falhou:", parseError.message, outputText);
+      markWeatherTargetFailure();
       return res.status(500).json({ error: "Falha ao obter previsão." });
     }
     cachedWeather = json;
     cachedWeatherAt = Date.now();
+    resetWeatherFailureState();
     return res.json(json);
   } catch (error) {
     console.error("[previsao] erro:", error);
+    markWeatherTargetFailure();
     return res.status(500).json({ error: "Falha ao obter previsão." });
   }
   // Exemplo:
@@ -1097,7 +1334,7 @@ const sanitizeArray = (list, live = false) => {
 };
 
 app.get("/api/placares", async (_req, res) => {
-  const hoje = new Date().toISOString().slice(0, 10);
+  const { localDate: hoje, localTime, timezoneLabel } = getLocalDateTimeInfo();
   if (!openai) {
     return res.status(400).json({ error: "OPENAI_API_KEY not set" });
   }
@@ -1108,7 +1345,7 @@ app.get("/api/placares", async (_req, res) => {
 
   const prompt = `
 Você é um narrador esportivo especializado em campeonatos brasileiros e europeus.
-A data de hoje é: ${hoje}.
+A data de hoje é: ${hoje} (horário local ${localTime}, UTC${timezoneLabel}).
 Liste SOMENTE jogos que acontecem HOJE (${hoje}), sem incluir partidas históricas ou futuras.
 Inclua:
 - Jogos AO VIVO do dia ${hoje}
@@ -1571,5 +1808,6 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
+  scheduleWeatherMediaRefresh();
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
