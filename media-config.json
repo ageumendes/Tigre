@@ -1,29 +1,122 @@
 {
-  "mode": "image",
+  "mode": "carousel",
   "items": [
     {
-      "path": "/media/latest-image.png",
-      "mime": "image/png",
-      "size": 2224288,
-      "updatedAt": 1765837433273.8237,
-      "target": "todas"
+      "path": "/media/carousel-1765911499240-eb49fd.jpeg",
+      "mime": "image/jpeg",
+      "size": 202865,
+      "updatedAt": 1765911499242.2998,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": ""
+    },
+    {
+      "path": "/media/carousel-1765911499243-1a0c6e.jpeg",
+      "mime": "image/jpeg",
+      "size": 180927,
+      "updatedAt": 1765911499247.301,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": ""
+    },
+    {
+      "path": "/media/carousel-1765911499244-b1bfce.jpeg",
+      "mime": "image/jpeg",
+      "size": 202267,
+      "updatedAt": 1765911499249.3015,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": ""
+    },
+    {
+      "path": "/media/carousel-1765911499249-a95290.jpeg",
+      "mime": "image/jpeg",
+      "size": 171768,
+      "updatedAt": 1765911499253.3025,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": ""
+    },
+    {
+      "path": "/media/screenshots/weather-portrait.jpeg",
+      "mime": "image/jpeg",
+      "size": 28179,
+      "updatedAt": 1765913426413.7646,
+      "target": "previsaodotempo",
+      "visivel": false,
+      "exibicao": "10s",
+      "intervalo": "5m"
     }
   ],
-  "updatedAt": 1765837433276,
+  "updatedAt": 1765914011382,
   "targets": {
     "todas": {
-      "mode": "image",
+      "mode": "carousel",
       "items": [
         {
-          "path": "/media/latest-image.png",
-          "mime": "image/png",
-          "size": 2224288,
-          "updatedAt": 1765837433273.8237,
-          "target": "todas"
+          "path": "/media/carousel-1765911499240-eb49fd.jpeg",
+          "mime": "image/jpeg",
+          "size": 202865,
+          "updatedAt": 1765911499242.2998,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        },
+        {
+          "path": "/media/carousel-1765911499243-1a0c6e.jpeg",
+          "mime": "image/jpeg",
+          "size": 180927,
+          "updatedAt": 1765911499247.301,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        },
+        {
+          "path": "/media/carousel-1765911499244-b1bfce.jpeg",
+          "mime": "image/jpeg",
+          "size": 202267,
+          "updatedAt": 1765911499249.3015,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        },
+        {
+          "path": "/media/carousel-1765911499249-a95290.jpeg",
+          "mime": "image/jpeg",
+          "size": 171768,
+          "updatedAt": 1765911499253.3025,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
         }
       ],
       "target": "todas",
-      "updatedAt": 1765837433276
+      "updatedAt": 1765911499258
+    },
+    "previsaodotempo": {
+      "mode": "image",
+      "items": [
+        {
+          "path": "/media/screenshots/weather-portrait.jpeg",
+          "mime": "image/jpeg",
+          "size": 28179,
+          "updatedAt": 1765913426413.7646,
+          "target": "previsaodotempo",
+          "visivel": false,
+          "exibicao": "10s",
+          "intervalo": "5m"
+        }
+      ],
+      "target": "previsaodotempo",
+      "updatedAt": 1765914011382
     }
   }
 }
