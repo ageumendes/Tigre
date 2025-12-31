@@ -112,10 +112,11 @@ const exibirErro = () => {
   }
 };
 
-const carregarPrevisao = async () => {
+const carregarPrevisao = async ({ force = false } = {}) => {
   proximasHorasList.innerHTML = '<div class="loading">Carregando previsão do tempo...</div>';
   try {
-    const response = await fetch("/api/previsao");
+    const query = force ? `?force=1&_=${Date.now()}` : `?_=${Date.now()}`;
+    const response = await fetch(`/api/previsao${query}`);
     if (!response.ok) throw new Error("Resposta inválida");
     const dados = await response.json();
     renderizarPrevisao(dados);
@@ -126,6 +127,6 @@ const carregarPrevisao = async () => {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  carregarPrevisao();
-  setInterval(carregarPrevisao, 5 * 60 * 1000);
+  carregarPrevisao({ force: true });
+  setInterval(carregarPrevisao, 30 * 60 * 1000);
 });
