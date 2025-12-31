@@ -2,41 +2,51 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1765911499240-eb49fd.jpeg",
+      "path": "/media/carousel-1767209516197-050089.jpeg",
       "mime": "image/jpeg",
-      "size": 202865,
-      "updatedAt": 1765911499242.2998,
+      "size": 252553,
+      "updatedAt": 1767209516202.3997,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1765911499243-1a0c6e.jpeg",
+      "path": "/media/carousel-1767209516202-95ffa8.jpeg",
       "mime": "image/jpeg",
-      "size": 180927,
-      "updatedAt": 1765911499247.301,
+      "size": 243077,
+      "updatedAt": 1767209516208.3997,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1765911499244-b1bfce.jpeg",
+      "path": "/media/carousel-1767209516207-2b0001.jpeg",
       "mime": "image/jpeg",
-      "size": 202267,
-      "updatedAt": 1765911499249.3015,
+      "size": 235160,
+      "updatedAt": 1767209516210.3997,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1765911499249-a95290.jpeg",
-      "mime": "image/jpeg",
-      "size": 171768,
-      "updatedAt": 1765911499253.3025,
-      "target": "todas",
+      "path": "/media/latest-acougue.mp4",
+      "mime": "video/mp4",
+      "size": 2018526,
+      "updatedAt": 1767210580562.4075,
+      "target": "acougue",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": ""
+    },
+    {
+      "path": "/media/retacionado/latest-acougue.mp4",
+      "mime": "video/mp4",
+      "size": 2018526,
+      "updatedAt": 1767210587100,
+      "target": "acouguerotacionado",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
@@ -44,54 +54,44 @@
     {
       "path": "/media/screenshots/weather-portrait.jpeg",
       "mime": "image/jpeg",
-      "size": 28179,
-      "updatedAt": 1765913426413.7646,
+      "size": 39011,
+      "updatedAt": 1767212353371.526,
       "target": "previsaodotempo",
-      "visivel": false,
+      "visivel": true,
       "exibicao": "10s",
       "intervalo": "5m"
     }
   ],
-  "updatedAt": 1765914011382,
+  "updatedAt": 1767212353445,
   "targets": {
     "todas": {
       "mode": "carousel",
       "items": [
         {
-          "path": "/media/carousel-1765911499240-eb49fd.jpeg",
+          "path": "/media/carousel-1767209516197-050089.jpeg",
           "mime": "image/jpeg",
-          "size": 202865,
-          "updatedAt": 1765911499242.2998,
+          "size": 252553,
+          "updatedAt": 1767209516202.3997,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1765911499243-1a0c6e.jpeg",
+          "path": "/media/carousel-1767209516202-95ffa8.jpeg",
           "mime": "image/jpeg",
-          "size": 180927,
-          "updatedAt": 1765911499247.301,
+          "size": 243077,
+          "updatedAt": 1767209516208.3997,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1765911499244-b1bfce.jpeg",
+          "path": "/media/carousel-1767209516207-2b0001.jpeg",
           "mime": "image/jpeg",
-          "size": 202267,
-          "updatedAt": 1765911499249.3015,
-          "target": "todas",
-          "visivel": true,
-          "exibicao": "10s",
-          "intervalo": ""
-        },
-        {
-          "path": "/media/carousel-1765911499249-a95290.jpeg",
-          "mime": "image/jpeg",
-          "size": 171768,
-          "updatedAt": 1765911499253.3025,
+          "size": 235160,
+          "updatedAt": 1767209516210.3997,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
@@ -99,7 +99,41 @@
         }
       ],
       "target": "todas",
-      "updatedAt": 1765911499258
+      "updatedAt": 1767209516213
+    },
+    "acougue": {
+      "mode": "video",
+      "items": [
+        {
+          "path": "/media/latest-acougue.mp4",
+          "mime": "video/mp4",
+          "size": 2018526,
+          "updatedAt": 1767210580562.4075,
+          "target": "acougue",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        }
+      ],
+      "target": "acougue",
+      "updatedAt": 1767210587100
+    },
+    "acouguerotacionado": {
+      "mode": "video",
+      "items": [
+        {
+          "path": "/media/retacionado/latest-acougue.mp4",
+          "mime": "video/mp4",
+          "size": 2018526,
+          "updatedAt": 1767210587100,
+          "target": "acouguerotacionado",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        }
+      ],
+      "target": "acouguerotacionado",
+      "updatedAt": 1767210587100
     },
     "previsaodotempo": {
       "mode": "image",
@@ -107,16 +141,16 @@
         {
           "path": "/media/screenshots/weather-portrait.jpeg",
           "mime": "image/jpeg",
-          "size": 28179,
-          "updatedAt": 1765913426413.7646,
+          "size": 39011,
+          "updatedAt": 1767212353371.526,
           "target": "previsaodotempo",
-          "visivel": false,
+          "visivel": true,
           "exibicao": "10s",
           "intervalo": "5m"
         }
       ],
       "target": "previsaodotempo",
-      "updatedAt": 1765914011382
+      "updatedAt": 1767212353445
     }
   }
 }

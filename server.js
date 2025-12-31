@@ -3,6 +3,7 @@ try {
 } catch (_error) {
   console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
 }
+const { execFile } = require("child_process");
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -10,6 +11,11 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const OpenAI = require("openai");
+const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
+const ffmpegPath = (ffmpegInstaller && ffmpegInstaller.path) || "ffmpeg";
+if (!ffmpegInstaller?.path) {
+  console.warn("FFmpeg instalador não localizado; aguardando binário 'ffmpeg' no PATH.");
+}
 const { renderWeatherPortrait } = require("./weatherScreenshot");
 
 const app = express();
@@ -17,6 +23,8 @@ const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
+const ROTATED_MEDIA_FOLDER = "retacionado";
+const rotatedMediaDir = path.join(mediaDir, ROTATED_MEDIA_FOLDER);
 const screenshotDir = path.join(mediaDir, "screenshots");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
 const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
@@ -164,6 +172,7 @@ const MIME_BY_EXT = {
 
 fs.mkdirSync(mediaDir, { recursive: true });
 fs.mkdirSync(screenshotDir, { recursive: true });
+fs.mkdirSync(rotatedMediaDir, { recursive: true });
 
 // TVs configuráveis para Roku.
 
@@ -219,6 +228,37 @@ const collectReferencedFilenames = (entries = []) => {
   });
   return Array.from(keep);
 };
+const rotateMp4Clockwise = (sourcePath, destPath) =>
+  new Promise((resolve, reject) => {
+    const args = [
+      "-i",
+      sourcePath,
+      "-vf",
+      "transpose=1",
+      "-c:v",
+      "libx264",
+      "-c:a",
+      "copy",
+      "-movflags",
+      "+faststart",
+      "-y",
+      destPath,
+    ];
+    execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) {
+        const message =
+          stderr && stderr.trim()
+            ? `ffmpeg stderr: ${stderr
+                .trim()
+                .split("\n")
+                .slice(-3)
+                .join(" | ")}`
+            : error.message;
+        return reject(new Error(`Falha ao rotacionar vídeo: ${message}`));
+      }
+      resolve();
+    });
+  });
 const slugifyId = (value) =>
   (value || "")
     .toString()
@@ -551,9 +591,17 @@ const cleanupKeeping = (keepList) => {
   const keepSet = new Set(keepList);
   const files = fs.readdirSync(mediaDir);
   for (const file of files) {
+    const filePath = path.join(mediaDir, file);
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.isDirectory()) continue;
+    } catch (statError) {
+      console.warn(`Não foi possível ler ${file} para limpeza:`, statError.message);
+      continue;
+    }
     if (keepSet.has(file)) continue;
     try {
-      fs.unlinkSync(path.join(mediaDir, file));
+      fs.unlinkSync(filePath);
     } catch (error) {
       console.warn(`Não foi possível remover ${file}:`, error.message);
     }
@@ -1566,8 +1614,23 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
   const mode = isVideo ? "video" : "image";
   const target = normalizeTarget(req.body?.target);
 
+  if (isVideo) {
+    const rotatedOutput = path.join(rotatedMediaDir, req.file.filename);
+    try {
+      await rotateMp4Clockwise(req.file.path, rotatedOutput);
+    } catch (error) {
+      console.error("Erro ao rotacionar vídeo enviado:", error.message);
+      return res
+        .status(500)
+        .json({ ok: false, message: "Erro ao rotacionar vídeo antes da publicação." });
+    }
+  }
+
   const item = summarizeFile(req.file.filename, target);
   const items = [item];
+  const rotatedRelativePath = isVideo
+    ? `/media/${ROTATED_MEDIA_FOLDER}/${req.file.filename}`
+    : null;
   try {
     const nextConfig = writeMediaConfig(target, mode, items, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
@@ -1586,6 +1649,7 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
     size: item.size,
     updatedAt: item.updatedAt,
     items: [item],
+    rotatedPath: rotatedRelativePath,
   });
 });
 

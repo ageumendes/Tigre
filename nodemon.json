@@ -1,0 +1,11 @@
+{
+  "watch": ["server.js", "weatherScreenshot.js"],
+  "ignore": [
+    "media/**",
+    "media-config.json",
+    "stats.json",
+    "promos.json",
+    "tv-config.json"
+  ],
+  "ext": "js,json"
+}
