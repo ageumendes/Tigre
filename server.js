@@ -1631,25 +1631,17 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
   const rotatedRelativePath = isVideo
     ? `/media/${ROTATED_MEDIA_FOLDER}/${req.file.filename}`
     : null;
-  const rotatedTarget = isVideo ? `${target}rotacionado` : null;
   let rotatedItem = null;
   if (isVideo) {
     const rotatedFileName = path.join(ROTATED_MEDIA_FOLDER, req.file.filename);
-    rotatedItem = summarizeFile(rotatedFileName, rotatedTarget);
+    rotatedItem = summarizeFile(rotatedFileName, target);
   }
   const targetItems =
     target === "acougue" && isVideo && rotatedItem ? [rotatedItem] : items;
   try {
     const baseConfig = writeMediaConfig(target, mode, targetItems, target === "todas");
-    const rotatedConfig =
-      isVideo && rotatedItem
-        ? writeMediaConfig(rotatedTarget, mode, [rotatedItem], rotatedTarget === "todas")
-        : baseConfig;
-    const keepSet = new Set([
-      ...collectReferencedFilenames(baseConfig.items),
-      ...collectReferencedFilenames(rotatedConfig.items),
-    ]);
-    cleanupKeeping(Array.from(keepSet));
+    const keepMediaFiles = collectReferencedFilenames(baseConfig.items);
+    cleanupKeeping(keepMediaFiles);
   } catch (error) {
     return res
       .status(500)
