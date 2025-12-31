@@ -2,40 +2,40 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1767219692461-291319.jpeg",
+      "path": "/media/carousel-1767220611103-f1cf1f.jpeg",
       "mime": "image/jpeg",
       "size": 261261,
-      "updatedAt": 1767219692461.497,
+      "updatedAt": 1767220611106.6492,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767219692463-a566f6.jpeg",
+      "path": "/media/carousel-1767220611107-2ad8b8.jpeg",
       "mime": "image/jpeg",
       "size": 252553,
-      "updatedAt": 1767219692462.497,
+      "updatedAt": 1767220611110.6492,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767219692464-728fb3.jpeg",
+      "path": "/media/carousel-1767220611110-e0078c.jpeg",
       "mime": "image/jpeg",
       "size": 243077,
-      "updatedAt": 1767219692463.497,
+      "updatedAt": 1767220611112.6492,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767219692464-41b871.jpeg",
+      "path": "/media/carousel-1767220611112-7a242b.jpeg",
       "mime": "image/jpeg",
       "size": 235160,
-      "updatedAt": 1767219692463.497,
+      "updatedAt": 1767220611113.6492,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
@@ -45,53 +45,53 @@
       "path": "/media/retacionado/latest-acougue.mp4",
       "mime": "video/mp4",
       "size": 3186683,
-      "updatedAt": 1767219706060.4436,
+      "updatedAt": 1767220634419.548,
       "target": "acougue",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     }
   ],
-  "updatedAt": 1767219712674,
+  "updatedAt": 1767220634438,
   "targets": {
     "todas": {
       "mode": "carousel",
       "items": [
         {
-          "path": "/media/carousel-1767219692461-291319.jpeg",
+          "path": "/media/carousel-1767220611103-f1cf1f.jpeg",
           "mime": "image/jpeg",
           "size": 261261,
-          "updatedAt": 1767219692461.497,
+          "updatedAt": 1767220611106.6492,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767219692463-a566f6.jpeg",
+          "path": "/media/carousel-1767220611107-2ad8b8.jpeg",
           "mime": "image/jpeg",
           "size": 252553,
-          "updatedAt": 1767219692462.497,
+          "updatedAt": 1767220611110.6492,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767219692464-728fb3.jpeg",
+          "path": "/media/carousel-1767220611110-e0078c.jpeg",
           "mime": "image/jpeg",
           "size": 243077,
-          "updatedAt": 1767219692463.497,
+          "updatedAt": 1767220611112.6492,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767219692464-41b871.jpeg",
+          "path": "/media/carousel-1767220611112-7a242b.jpeg",
           "mime": "image/jpeg",
           "size": 235160,
-          "updatedAt": 1767219692463.497,
+          "updatedAt": 1767220611113.6492,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
@@ -99,7 +99,7 @@
         }
       ],
       "target": "todas",
-      "updatedAt": 1767219692465
+      "updatedAt": 1767220611116
     },
     "acougue": {
       "mode": "video",
@@ -108,7 +108,7 @@
           "path": "/media/retacionado/latest-acougue.mp4",
           "mime": "video/mp4",
           "size": 3186683,
-          "updatedAt": 1767219706060.4436,
+          "updatedAt": 1767220634419.548,
           "target": "acougue",
           "visivel": true,
           "exibicao": "10s",
@@ -116,25 +116,7 @@
         }
       ],
       "target": "acougue",
-      "updatedAt": 1767219712674
-    }
-    ,
-    "acouguerotacionado": {
-      "mode": "video",
-      "items": [
-        {
-          "path": "/media/retacionado/latest-acougue.mp4",
-          "mime": "video/mp4",
-          "size": 3186683,
-          "updatedAt": 1767219706060.4436,
-          "target": "acouguerotacionado",
-          "visivel": true,
-          "exibicao": "10s",
-          "intervalo": ""
-        }
-      ],
-      "target": "acouguerotacionado",
-      "updatedAt": 1767219712674
+      "updatedAt": 1767220634436
     }
   }
 }
