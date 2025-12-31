@@ -801,9 +801,13 @@ const triggerForecastRefresh = async () => {
   }
   const url = `${WEATHER_MEDIA_BASE_URL}/api/previsao?_=${Date.now()}`;
   try {
-    await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`status ${response.status} ${response.statusText}`);
+    }
   } catch (error) {
     console.warn(`[forecast-refresh] falha ao chamar ${url}:`, error.message);
+    throw error;
   }
 };
 
