@@ -2,40 +2,40 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1767220611103-f1cf1f.jpeg",
+      "path": "/media/carousel-1767220840886-d92d54.jpeg",
       "mime": "image/jpeg",
       "size": 261261,
-      "updatedAt": 1767220611106.6492,
+      "updatedAt": 1767220840889.5613,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767220611107-2ad8b8.jpeg",
+      "path": "/media/carousel-1767220840890-b51b61.jpeg",
       "mime": "image/jpeg",
       "size": 252553,
-      "updatedAt": 1767220611110.6492,
+      "updatedAt": 1767220840891.5613,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767220611110-e0078c.jpeg",
+      "path": "/media/carousel-1767220840892-a78393.jpeg",
       "mime": "image/jpeg",
       "size": 243077,
-      "updatedAt": 1767220611112.6492,
+      "updatedAt": 1767220840893.5613,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     },
     {
-      "path": "/media/carousel-1767220611112-7a242b.jpeg",
+      "path": "/media/carousel-1767220840894-252d64.jpeg",
       "mime": "image/jpeg",
       "size": 235160,
-      "updatedAt": 1767220611113.6492,
+      "updatedAt": 1767220840895.5613,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
@@ -45,53 +45,53 @@
       "path": "/media/retacionado/latest-acougue.mp4",
       "mime": "video/mp4",
       "size": 3186683,
-      "updatedAt": 1767220634419.548,
+      "updatedAt": 1767220861968.8806,
       "target": "acougue",
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
     }
   ],
-  "updatedAt": 1767220634438,
+  "updatedAt": 1767220861993,
   "targets": {
     "todas": {
       "mode": "carousel",
       "items": [
         {
-          "path": "/media/carousel-1767220611103-f1cf1f.jpeg",
+          "path": "/media/carousel-1767220840886-d92d54.jpeg",
           "mime": "image/jpeg",
           "size": 261261,
-          "updatedAt": 1767220611106.6492,
+          "updatedAt": 1767220840889.5613,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767220611107-2ad8b8.jpeg",
+          "path": "/media/carousel-1767220840890-b51b61.jpeg",
           "mime": "image/jpeg",
           "size": 252553,
-          "updatedAt": 1767220611110.6492,
+          "updatedAt": 1767220840891.5613,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767220611110-e0078c.jpeg",
+          "path": "/media/carousel-1767220840892-a78393.jpeg",
           "mime": "image/jpeg",
           "size": 243077,
-          "updatedAt": 1767220611112.6492,
+          "updatedAt": 1767220840893.5613,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
           "intervalo": ""
         },
         {
-          "path": "/media/carousel-1767220611112-7a242b.jpeg",
+          "path": "/media/carousel-1767220840894-252d64.jpeg",
           "mime": "image/jpeg",
           "size": 235160,
-          "updatedAt": 1767220611113.6492,
+          "updatedAt": 1767220840895.5613,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
@@ -99,7 +99,7 @@
         }
       ],
       "target": "todas",
-      "updatedAt": 1767220611116
+      "updatedAt": 1767220840897
     },
     "acougue": {
       "mode": "video",
@@ -108,7 +108,7 @@
           "path": "/media/retacionado/latest-acougue.mp4",
           "mime": "video/mp4",
           "size": 3186683,
-          "updatedAt": 1767220634419.548,
+          "updatedAt": 1767220861968.8806,
           "target": "acougue",
           "visivel": true,
           "exibicao": "10s",
@@ -116,7 +116,7 @@
         }
       ],
       "target": "acougue",
-      "updatedAt": 1767220634436
+      "updatedAt": 1767220861993
     }
   }
 }
