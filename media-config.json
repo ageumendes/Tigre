@@ -42,9 +42,9 @@
       "intervalo": ""
     },
     {
-      "path": "/media/latest-acougue.mp4",
+      "path": "/media/retacionado/latest-acougue.mp4",
       "mime": "video/mp4",
-      "size": 2018526,
+      "size": 3186683,
       "updatedAt": 1767219706060.4436,
       "target": "acougue",
       "visivel": true,
@@ -105,9 +105,9 @@
       "mode": "video",
       "items": [
         {
-          "path": "/media/latest-acougue.mp4",
+          "path": "/media/retacionado/latest-acougue.mp4",
           "mime": "video/mp4",
-          "size": 2018526,
+          "size": 3186683,
           "updatedAt": 1767219706060.4436,
           "target": "acougue",
           "visivel": true,
@@ -116,6 +116,24 @@
         }
       ],
       "target": "acougue",
+      "updatedAt": 1767219712674
+    }
+    ,
+    "acouguerotacionado": {
+      "mode": "video",
+      "items": [
+        {
+          "path": "/media/retacionado/latest-acougue.mp4",
+          "mime": "video/mp4",
+          "size": 3186683,
+          "updatedAt": 1767219706060.4436,
+          "target": "acouguerotacionado",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": ""
+        }
+      ],
+      "target": "acouguerotacionado",
       "updatedAt": 1767219712674
     }
   }
