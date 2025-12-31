@@ -50,9 +50,19 @@
       "visivel": true,
       "exibicao": "10s",
       "intervalo": ""
+    },
+    {
+      "path": "/media/screenshots/weather-portrait.jpeg",
+      "mime": "image/jpeg",
+      "size": 28179,
+      "updatedAt": 1767222706264.0176,
+      "target": "previsaodotempo",
+      "visivel": false,
+      "exibicao": "10s",
+      "intervalo": "5m"
     }
   ],
-  "updatedAt": 1767220861993,
+  "updatedAt": 1767222733013,
   "targets": {
     "todas": {
       "mode": "carousel",
@@ -117,6 +127,23 @@
       ],
       "target": "acougue",
       "updatedAt": 1767220861993
+    },
+    "previsaodotempo": {
+      "mode": "image",
+      "items": [
+        {
+          "path": "/media/screenshots/weather-portrait.jpeg",
+          "mime": "image/jpeg",
+          "size": 28179,
+          "updatedAt": 1767222706264.0176,
+          "target": "previsaodotempo",
+          "visivel": false,
+          "exibicao": "10s",
+          "intervalo": "5m"
+        }
+      ],
+      "target": "previsaodotempo",
+      "updatedAt": 1767222733012
     }
   }
 }
