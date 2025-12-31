@@ -1638,6 +1638,13 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
   }
   const targetItems =
     target === "acougue" && isVideo && rotatedItem ? [rotatedItem] : items;
+  if (target === "acougue" && isVideo) {
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (error) {
+      console.warn("Não foi possível remover vídeo original do acougue:", error.message);
+    }
+  }
   try {
     const baseConfig = writeMediaConfig(target, mode, targetItems, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(baseConfig.items);
