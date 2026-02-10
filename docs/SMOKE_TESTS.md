@@ -33,4 +33,6 @@ curl -i -X POST http://localhost:3000/api/stats/event \
 curl -I http://localhost:3000/media/latest/master.m3u8
 curl -i http://localhost:3000/api/catalog?target=acougue
 open http://localhost:3000/acougue.html
+# No player, testar botão Girar: deve alternar URL (landscape/portrait) sem CSS rotate.
+# Upload de vídeo com rotação: conferir se sai normalizado (sem girar).
 ```

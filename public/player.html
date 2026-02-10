@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Player Tigre</title>
+    <link rel="stylesheet" href="/player.css" />
+  </head>
+  <body>
+    <div id="player-root" class="player-root">
+      <div id="media-container" class="media-container"></div>
+      <div class="controls">
+        <button id="btn-fullscreen" type="button">Fullscreen</button>
+        <button id="btn-rotate" type="button">Girar</button>
+        <button id="btn-prev" type="button">Anterior</button>
+        <button id="btn-next" type="button">Próximo</button>
+      </div>
+    </div>
+    <script>
+      window.PLAYER_TARGET = "__PLAYER_TARGET__";
+      window.IMAGE_DURATION_MS = "__IMAGE_DURATION__";
+    </script>
+    <script src="/hls.min.js"></script>
+    <script src="/player.js"></script>
+  </body>
+</html>

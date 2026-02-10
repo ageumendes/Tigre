@@ -36,9 +36,7 @@ const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
-const ROTATED_MEDIA_FOLDER = "rotacionado";
 const LEGACY_ROTATED_MEDIA_FOLDER = "retacionado";
-const rotatedMediaDir = path.join(mediaDir, ROTATED_MEDIA_FOLDER);
 const legacyRotatedMediaDir = path.join(mediaDir, LEGACY_ROTATED_MEDIA_FOLDER);
 const screenshotDir = path.join(mediaDir, "screenshots");
 const normalizedDir = path.join(mediaDir, "normalized");
@@ -54,6 +52,7 @@ const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const tvConfigFile = path.join(__dirname, "tv-config.json");
+const publicDir = path.join(__dirname, "public");
 const pkg = require("./package.json");
 const APP_VERSION = process.env.APP_VERSION || pkg.version || "0.0.0";
 const weatherCallRecordFile = path.join(os.tmpdir(), "tigre-weather-call.json");
@@ -239,11 +238,11 @@ const ensureDir = (dir) => {
 
 ensureDir(mediaDir);
 ensureDir(screenshotDir);
-ensureDir(rotatedMediaDir);
 ensureDir(normalizedDir);
 ensureDir(imagesDir);
 ensureDir(imageVariantsDir);
 ensureDir(hlsLatestDir);
+ensureDir(publicDir);
 if (fs.existsSync(legacyRotatedMediaDir)) {
   ensureDir(legacyRotatedMediaDir);
 }
@@ -304,37 +303,6 @@ const collectReferencedFilenames = (entries = []) => {
   });
   return Array.from(keep);
 };
-const rotateMp4Clockwise = (sourcePath, destPath) =>
-  new Promise((resolve, reject) => {
-    const args = [
-      "-i",
-      sourcePath,
-      "-vf",
-      "transpose=1",
-      "-c:v",
-      "libx264",
-      "-c:a",
-      "copy",
-      "-movflags",
-      "+faststart",
-      "-y",
-      destPath,
-    ];
-    execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
-      if (error) {
-        const message =
-          stderr && stderr.trim()
-            ? `ffmpeg stderr: ${stderr
-                .trim()
-                .split("\n")
-                .slice(-3)
-                .join(" | ")}`
-            : error.message;
-        return reject(new Error(`Falha ao rotacionar vídeo: ${message}`));
-      }
-      resolve();
-    });
-  });
 const slugifyId = (value) =>
   (value || "")
     .toString()
@@ -532,10 +500,10 @@ const transcodeWithRotation = (inputPath, outputPath, rotation) =>
     const filter =
       rotation === 90
         ? "transpose=1"
-        : rotation === 270 || rotation === 270 || rotation === 180
-        ? rotation === 180
-          ? "transpose=1,transpose=1"
-          : "transpose=2"
+        : rotation === 270
+        ? "transpose=2"
+        : rotation === 180
+        ? "transpose=1,transpose=1"
         : null;
     const args = [
       "-i",
@@ -574,10 +542,10 @@ const transcodeWithRotation = (inputPath, outputPath, rotation) =>
     });
   });
 
-const generateHlsVariants = (inputPath, target, mediaId, maxHeight, hasAudio) =>
+const generateHlsVariants = (inputPath, target, mediaId, variantLabel, maxHeight, hasAudio) =>
   new Promise((resolve, reject) => {
     if (!ENABLE_HLS) return resolve(null);
-    const baseDir = path.join(hlsDir, target || "todas", mediaId);
+    const baseDir = path.join(hlsDir, target || "todas", mediaId, variantLabel || "landscape");
     ensureDir(baseDir);
 
     const renditions = [
@@ -632,6 +600,12 @@ const generateHlsVariants = (inputPath, target, mediaId, maxHeight, hasAudio) =>
       "-filter_complex",
       filterComplex,
       ...mapArgs,
+      "-g",
+      "48",
+      "-keyint_min",
+      "48",
+      "-sc_threshold",
+      "0",
       "-f",
       "hls",
       "-hls_time",
@@ -664,10 +638,12 @@ const generateHlsVariants = (inputPath, target, mediaId, maxHeight, hasAudio) =>
     });
   });
 
-const processImageVariants = async (inputPath, baseName) => {
+const processImageVariants = async (inputPath, baseName, orientation, rotateDegrees) => {
   if (!sharp) return null;
-  const normalizedPath = path.join(imagesDir, `${baseName}.webp`);
-  const image = sharp(inputPath).rotate();
+  const suffix = orientation ? `__${orientation}` : "";
+  const normalizedPath = path.join(imagesDir, `${baseName}${suffix}.webp`);
+  const baseImage = sharp(inputPath).rotate();
+  const image = rotateDegrees ? baseImage.rotate(rotateDegrees) : baseImage;
   const metadata = await image.metadata();
   await image.webp({ quality: 85 }).toFile(normalizedPath);
 
@@ -678,12 +654,13 @@ const processImageVariants = async (inputPath, baseName) => {
   const targets = isPortrait ? portraitSizes : landscapeSizes;
 
   for (const width of targets) {
-    const output = path.join(imageVariantsDir, `${baseName}__w${width}.webp`);
-    await sharp(inputPath)
-      .rotate()
-      .resize({ width })
-      .webp({ quality: 80 })
-      .toFile(output);
+    const output = path.join(
+      imageVariantsDir,
+      `${baseName}${suffix}__w${width}.webp`
+    );
+    const variantBase = sharp(inputPath).rotate();
+    const variant = rotateDegrees ? variantBase.rotate(rotateDegrees) : variantBase;
+    await variant.resize({ width }).webp({ quality: 80 }).toFile(output);
     variants.push({
       width,
       path: resolveRelativeMediaPath(output),
@@ -709,32 +686,49 @@ const processVideoUpload = async (filePath, fileName, target) => {
   const meta = extractVideoMetadata(probe);
   const rotation = normalizeRotation(meta.rotation || 0);
   const baseName = path.parse(fileName).name;
-  let outputPath = filePath;
+  const landscapePath = path.join(normalizedDir, `${baseName}__landscape.mp4`);
+  const portraitPath = path.join(normalizedDir, `${baseName}__portrait.mp4`);
+
   if ([90, 180, 270].includes(rotation)) {
-    outputPath = path.join(normalizedDir, `${baseName}.mp4`);
-    await transcodeWithRotation(filePath, outputPath, rotation);
+    await transcodeWithRotation(filePath, landscapePath, rotation);
+  } else {
+    await transcodeWithRotation(filePath, landscapePath, 0);
   }
 
-  const finalProbe = outputPath === filePath ? probe : await runFfprobe(outputPath);
-  const finalMeta = extractVideoMetadata(finalProbe);
-  const correctedRotation = normalizeRotation(finalMeta.rotation || 0);
-  const width = finalMeta.width || meta.width;
-  const height = finalMeta.height || meta.height;
-  const duration = finalMeta.duration || meta.duration;
+  await transcodeWithRotation(landscapePath, portraitPath, 90);
+
+  const landscapeProbe = await runFfprobe(landscapePath);
+  const landscapeMeta = extractVideoMetadata(landscapeProbe);
+  const width = landscapeMeta.width || meta.width;
+  const height = landscapeMeta.height || meta.height;
+  const duration = landscapeMeta.duration || meta.duration;
   const mediaId = `${slugifyId(baseName)}-${Date.now()}`;
 
-  let hlsMasterUrl = "";
+  let hlsLandscape = "";
+  let hlsPortrait = "";
   if (ENABLE_HLS) {
     try {
-      const hlsResult = await generateHlsVariants(
-        outputPath,
+      const hlsResultLandscape = await generateHlsVariants(
+        landscapePath,
         target,
         mediaId,
+        "landscape",
         height || null,
-        !!finalMeta.hasAudio
+        !!landscapeMeta.hasAudio
       );
-      if (hlsResult?.masterPath) {
-        hlsMasterUrl = resolveRelativeMediaPath(hlsResult.masterPath) || "";
+      if (hlsResultLandscape?.masterPath) {
+        hlsLandscape = resolveRelativeMediaPath(hlsResultLandscape.masterPath) || "";
+      }
+      const hlsResultPortrait = await generateHlsVariants(
+        portraitPath,
+        target,
+        mediaId,
+        "portrait",
+        width || null,
+        !!landscapeMeta.hasAudio
+      );
+      if (hlsResultPortrait?.masterPath) {
+        hlsPortrait = resolveRelativeMediaPath(hlsResultPortrait.masterPath) || "";
       }
     } catch (error) {
       logWeatherWarnOnce("hls-fail", `[hls] falha ao gerar HLS: ${error.message || "erro"}`);
@@ -742,12 +736,13 @@ const processVideoUpload = async (filePath, fileName, target) => {
   }
 
   return {
-    outputPath,
+    landscapePath,
+    portraitPath,
     width,
     height,
     duration,
-    rotation: correctedRotation,
-    hlsMasterUrl,
+    hlsLandscape,
+    hlsPortrait,
     mediaId,
   };
 };
@@ -755,14 +750,26 @@ const processVideoUpload = async (filePath, fileName, target) => {
 const processImageUpload = async (filePath, fileName) => {
   const baseName = path.parse(fileName).name;
   if (!sharp) {
-    return { outputPath: filePath, width: null, height: null, variants: [] };
+    return {
+      landscape: { outputPath: filePath, width: null, height: null, variants: [] },
+      portrait: { outputPath: filePath, width: null, height: null, variants: [] },
+    };
   }
-  const processed = await processImageVariants(filePath, baseName);
+  const landscape = await processImageVariants(filePath, baseName, "landscape", 0);
+  const portrait = await processImageVariants(filePath, baseName, "portrait", 90);
   return {
-    outputPath: processed?.normalizedPath || filePath,
-    width: processed?.width || null,
-    height: processed?.height || null,
-    variants: processed?.variants || [],
+    landscape: {
+      outputPath: landscape?.normalizedPath || filePath,
+      width: landscape?.width || null,
+      height: landscape?.height || null,
+      variants: landscape?.variants || [],
+    },
+    portrait: {
+      outputPath: portrait?.normalizedPath || filePath,
+      width: portrait?.width || null,
+      height: portrait?.height || null,
+      variants: portrait?.variants || [],
+    },
   };
 };
 
@@ -804,8 +811,16 @@ const buildCatalogItem = (item) => {
     type: item.mime && item.mime.startsWith("video/") ? "video" : "image",
     target: normalizeTarget(item.target || "todas"),
     mp4Url,
+    mp4UrlLandscape: item.mp4UrlLandscape || mp4Url,
+    mp4UrlPortrait: item.mp4UrlPortrait || "",
     hlsMasterUrl: item.hlsMasterUrl || "",
-    posterUrl: item.posterUrl || "",
+    hlsMasterUrlLandscape: item.hlsMasterUrlLandscape || item.hlsMasterUrl || "",
+    hlsMasterUrlPortrait: item.hlsMasterUrlPortrait || "",
+    posterUrl: item.posterUrl || item.posterUrlLandscape || "",
+    posterUrlLandscape: item.posterUrlLandscape || "",
+    posterUrlPortrait: item.posterUrlPortrait || "",
+    variantsLandscape: item.variantsLandscape || [],
+    variantsPortrait: item.variantsPortrait || [],
     duration: item.duration || null,
     width: item.width || null,
     height: item.height || null,
@@ -983,7 +998,8 @@ app.use(express.json());
 app.get("/media/latest/master.m3u8", (req, res) => {
   const config = readMediaConfig();
   const primary = config?.items?.[0];
-  const hlsMasterUrl = primary?.hlsMasterUrl;
+  const hlsMasterUrl =
+    primary?.hlsMasterUrlLandscape || primary?.hlsMasterUrl || primary?.hlsMasterUrlPortrait;
   let masterPath = null;
   if (hlsMasterUrl) {
     masterPath = resolveMediaPath(hlsMasterUrl);
@@ -1000,7 +1016,8 @@ app.get("/media/latest/master.m3u8", (req, res) => {
 app.head("/media/latest/master.m3u8", (req, res) => {
   const config = readMediaConfig();
   const primary = config?.items?.[0];
-  const hlsMasterUrl = primary?.hlsMasterUrl;
+  const hlsMasterUrl =
+    primary?.hlsMasterUrlLandscape || primary?.hlsMasterUrl || primary?.hlsMasterUrlPortrait;
   let masterPath = null;
   if (hlsMasterUrl) {
     masterPath = resolveMediaPath(hlsMasterUrl);
@@ -1019,8 +1036,8 @@ app.head("/media/hls/*", handleMediaRequest);
 app.get("/media/*", handleMediaRequest);
 app.head("/media/*", handleMediaRequest);
 const PLAYER_TARGETS = ["acougue", "hortifrut", "padaria", "todas"];
-const playerTemplate = fs.existsSync(path.join(__dirname, "player.html"))
-  ? fs.readFileSync(path.join(__dirname, "player.html"), "utf8")
+const playerTemplate = fs.existsSync(path.join(publicDir, "player.html"))
+  ? fs.readFileSync(path.join(publicDir, "player.html"), "utf8")
   : "";
 const servePlayer = (target) => (req, res) => {
   if (!playerTemplate) return res.sendStatus(404);
@@ -1033,6 +1050,7 @@ const servePlayer = (target) => (req, res) => {
 PLAYER_TARGETS.forEach((target) => {
   app.get(`/${target}.html`, servePlayer(target));
 });
+app.use(express.static(publicDir, { maxAge: 0 }));
 app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 
 const findLatestFile = () => {
@@ -2615,17 +2633,27 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     } catch (error) {
       console.error("Erro ao normalizar vídeo enviado:", error.message);
       return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Erro ao processar vídeo.");
+    } finally {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (error) {
+        console.warn("Não foi possível remover vídeo original:", error.message);
+      }
     }
-    const relativePath = resolveRelativeMediaPath(videoResult.outputPath);
-    if (!relativePath) {
+    const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
+    const portraitUrl = resolveRelativeMediaPath(videoResult.portraitPath);
+    if (!landscapeUrl || !portraitUrl) {
       return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Caminho de vídeo inválido.");
     }
-    item = summarizeFile(relativePath.replace("/media/", ""), target);
+    item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
     item.width = videoResult.width || null;
     item.height = videoResult.height || null;
     item.duration = videoResult.duration || null;
-    item.hlsMasterUrl = videoResult.hlsMasterUrl || "";
     item.id = videoResult.mediaId;
+    item.mp4UrlLandscape = landscapeUrl;
+    item.mp4UrlPortrait = portraitUrl;
+    item.hlsMasterUrlLandscape = videoResult.hlsLandscape || "";
+    item.hlsMasterUrlPortrait = videoResult.hlsPortrait || "";
   } else {
     let imageResult;
     try {
@@ -2633,16 +2661,29 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     } catch (error) {
       console.error("Erro ao normalizar imagem:", error.message);
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
+    } finally {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (error) {
+        console.warn("Não foi possível remover imagem original:", error.message);
+      }
     }
-    const bestVariant = chooseBestVariant(imageResult?.variants);
-    const outputPath = bestVariant?.path || resolveRelativeMediaPath(imageResult.outputPath);
-    if (!outputPath) {
+    const bestLandscape = chooseBestVariant(imageResult?.landscape?.variants || []);
+    const bestPortrait = chooseBestVariant(imageResult?.portrait?.variants || []);
+    const landscapeUrl =
+      bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
+    const portraitUrl =
+      bestPortrait?.path || resolveRelativeMediaPath(imageResult?.portrait?.outputPath);
+    if (!landscapeUrl || !portraitUrl) {
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Caminho de imagem inválido.");
     }
-    item = summarizeFile(outputPath.replace("/media/", ""), target);
-    item.width = imageResult?.width || null;
-    item.height = imageResult?.height || null;
-    item.variants = imageResult?.variants || [];
+    item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
+    item.width = imageResult?.landscape?.width || null;
+    item.height = imageResult?.landscape?.height || null;
+    item.posterUrlLandscape = landscapeUrl;
+    item.posterUrlPortrait = portraitUrl;
+    item.variantsLandscape = imageResult?.landscape?.variants || [];
+    item.variantsPortrait = imageResult?.portrait?.variants || [];
   }
 
   const items = [item];
@@ -2699,19 +2740,32 @@ app.post(
   for (const file of files) {
     try {
       const imageResult = await processImageUpload(file.path, file.filename);
-      const bestVariant = chooseBestVariant(imageResult?.variants);
-      const outputPath = bestVariant?.path || resolveRelativeMediaPath(imageResult.outputPath);
-      if (!outputPath) {
+      const bestLandscape = chooseBestVariant(imageResult?.landscape?.variants || []);
+      const bestPortrait = chooseBestVariant(imageResult?.portrait?.variants || []);
+      const landscapeUrl =
+        bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
+      const portraitUrl =
+        bestPortrait?.path || resolveRelativeMediaPath(imageResult?.portrait?.outputPath);
+      if (!landscapeUrl || !portraitUrl) {
         throw new Error("Caminho de imagem inválido.");
       }
-      const item = summarizeFile(outputPath.replace("/media/", ""), target);
-      item.width = imageResult?.width || null;
-      item.height = imageResult?.height || null;
-      item.variants = imageResult?.variants || [];
+      const item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
+      item.width = imageResult?.landscape?.width || null;
+      item.height = imageResult?.landscape?.height || null;
+      item.posterUrlLandscape = landscapeUrl;
+      item.posterUrlPortrait = portraitUrl;
+      item.variantsLandscape = imageResult?.landscape?.variants || [];
+      item.variantsPortrait = imageResult?.portrait?.variants || [];
       items.push(item);
     } catch (error) {
       console.error("Erro ao processar imagem do carrossel:", error.message);
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
+    } finally {
+      try {
+        fs.unlinkSync(file.path);
+      } catch (error) {
+        console.warn("Não foi possível remover imagem original do carrossel:", error.message);
+      }
     }
   }
   try {
