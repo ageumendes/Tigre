@@ -42,6 +42,7 @@ const screenshotDir = path.join(mediaDir, "screenshots");
 const normalizedDir = path.join(mediaDir, "normalized");
 const imagesDir = path.join(mediaDir, "images");
 const imageVariantsDir = path.join(imagesDir, "variants");
+const posterDir = path.join(imagesDir, "posters");
 const hlsDir = path.join(mediaDir, "hls");
 const hlsLatestDir = path.join(hlsDir, "latest");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
@@ -78,7 +79,21 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/webp",
 ]);
 const ENABLE_HLS = (process.env.ENABLE_HLS || "").toLowerCase() === "true";
+const ENABLE_PORTRAIT_VARIANTS =
+  (process.env.ENABLE_PORTRAIT_VARIANTS || "true").toLowerCase() === "true";
 const IMAGE_DURATION_MS = parseInt(process.env.IMAGE_DURATION_MS || "8000", 10) || 8000;
+const HLS_RENDITIONS = (process.env.HLS_RENDITIONS || "240,360,720,1080")
+  .split(",")
+  .map((value) => parseInt(value.trim(), 10))
+  .filter((value) => Number.isFinite(value));
+const IMAGE_VARIANTS = (process.env.IMAGE_VARIANTS || "1920,1280,720")
+  .split(",")
+  .map((value) => parseInt(value.trim(), 10))
+  .filter((value) => Number.isFinite(value));
+const IMAGE_VARIANTS_PORTRAIT = (process.env.IMAGE_VARIANTS_PORTRAIT || "1080,720")
+  .split(",")
+  .map((value) => parseInt(value.trim(), 10))
+  .filter((value) => Number.isFinite(value));
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -241,6 +256,7 @@ ensureDir(screenshotDir);
 ensureDir(normalizedDir);
 ensureDir(imagesDir);
 ensureDir(imageVariantsDir);
+ensureDir(posterDir);
 ensureDir(hlsLatestDir);
 ensureDir(publicDir);
 if (fs.existsSync(legacyRotatedMediaDir)) {
@@ -383,6 +399,10 @@ const getMediaCacheControl = (req, absPath) => {
     url.includes("&v=") ||
     url.includes("?t=") ||
     url.includes("&t=");
+  const ext = path.extname(absPath || "").toLowerCase();
+  if (ext === ".m3u8") {
+    return "public, max-age=0, must-revalidate";
+  }
   if (hasVersion) {
     return "public, max-age=31536000, immutable";
   }
@@ -548,12 +568,12 @@ const generateHlsVariants = (inputPath, target, mediaId, variantLabel, maxHeight
     const baseDir = path.join(hlsDir, target || "todas", mediaId, variantLabel || "landscape");
     ensureDir(baseDir);
 
-    const renditions = [
-      { height: 240, bitrate: "400k", name: "240p" },
-      { height: 360, bitrate: "800k", name: "360p" },
-      { height: 720, bitrate: "2200k", name: "720p" },
-      { height: 1080, bitrate: "5000k", name: "1080p" },
-    ].filter((r) => !maxHeight || r.height <= maxHeight);
+    const renditions = HLS_RENDITIONS.map((height) => {
+      if (height <= 240) return { height, bitrate: "400k", name: `${height}p` };
+      if (height <= 360) return { height, bitrate: "800k", name: `${height}p` };
+      if (height <= 720) return { height, bitrate: "2200k", name: `${height}p` };
+      return { height, bitrate: "5000k", name: `${height}p` };
+    }).filter((r) => !maxHeight || r.height <= maxHeight);
 
     if (!renditions.length) return resolve(null);
 
@@ -638,7 +658,13 @@ const generateHlsVariants = (inputPath, target, mediaId, variantLabel, maxHeight
     });
   });
 
-const processImageVariants = async (inputPath, baseName, orientation, rotateDegrees) => {
+const processImageVariants = async (
+  inputPath,
+  baseName,
+  orientation,
+  rotateDegrees,
+  sizes
+) => {
   if (!sharp) return null;
   const suffix = orientation ? `__${orientation}` : "";
   const normalizedPath = path.join(imagesDir, `${baseName}${suffix}.webp`);
@@ -648,10 +674,7 @@ const processImageVariants = async (inputPath, baseName, orientation, rotateDegr
   await image.webp({ quality: 85 }).toFile(normalizedPath);
 
   const variants = [];
-  const landscapeSizes = [1920, 1280, 720];
-  const portraitSizes = [1080, 720];
-  const isPortrait = metadata.height && metadata.width ? metadata.height >= metadata.width : false;
-  const targets = isPortrait ? portraitSizes : landscapeSizes;
+  const targets = Array.isArray(sizes) && sizes.length ? sizes : IMAGE_VARIANTS;
 
   for (const width of targets) {
     const output = path.join(
@@ -688,21 +711,25 @@ const processVideoUpload = async (filePath, fileName, target) => {
   const baseName = path.parse(fileName).name;
   const landscapePath = path.join(normalizedDir, `${baseName}__landscape.mp4`);
   const portraitPath = path.join(normalizedDir, `${baseName}__portrait.mp4`);
+  const mediaId = `${slugifyId(baseName)}-${Date.now()}`;
 
-  if ([90, 180, 270].includes(rotation)) {
-    await transcodeWithRotation(filePath, landscapePath, rotation);
-  } else {
-    await transcodeWithRotation(filePath, landscapePath, 0);
+  if (!fs.existsSync(landscapePath)) {
+    if ([90, 180, 270].includes(rotation)) {
+      await transcodeWithRotation(filePath, landscapePath, rotation);
+    } else {
+      await transcodeWithRotation(filePath, landscapePath, 0);
+    }
   }
 
-  await transcodeWithRotation(landscapePath, portraitPath, 90);
+  if (ENABLE_PORTRAIT_VARIANTS && !fs.existsSync(portraitPath)) {
+    await transcodeWithRotation(landscapePath, portraitPath, 90);
+  }
 
   const landscapeProbe = await runFfprobe(landscapePath);
   const landscapeMeta = extractVideoMetadata(landscapeProbe);
   const width = landscapeMeta.width || meta.width;
   const height = landscapeMeta.height || meta.height;
   const duration = landscapeMeta.duration || meta.duration;
-  const mediaId = `${slugifyId(baseName)}-${Date.now()}`;
 
   let hlsLandscape = "";
   let hlsPortrait = "";
@@ -719,31 +746,82 @@ const processVideoUpload = async (filePath, fileName, target) => {
       if (hlsResultLandscape?.masterPath) {
         hlsLandscape = resolveRelativeMediaPath(hlsResultLandscape.masterPath) || "";
       }
-      const hlsResultPortrait = await generateHlsVariants(
-        portraitPath,
-        target,
-        mediaId,
-        "portrait",
-        width || null,
-        !!landscapeMeta.hasAudio
-      );
-      if (hlsResultPortrait?.masterPath) {
-        hlsPortrait = resolveRelativeMediaPath(hlsResultPortrait.masterPath) || "";
+      if (ENABLE_PORTRAIT_VARIANTS && fs.existsSync(portraitPath)) {
+        const hlsResultPortrait = await generateHlsVariants(
+          portraitPath,
+          target,
+          mediaId,
+          "portrait",
+          width || null,
+          !!landscapeMeta.hasAudio
+        );
+        if (hlsResultPortrait?.masterPath) {
+          hlsPortrait = resolveRelativeMediaPath(hlsResultPortrait.masterPath) || "";
+        }
       }
     } catch (error) {
       logWeatherWarnOnce("hls-fail", `[hls] falha ao gerar HLS: ${error.message || "erro"}`);
     }
   }
 
+  const posterLandscape = path.join(posterDir, `${mediaId}_landscape.webp`);
+  const posterPortrait = path.join(posterDir, `${mediaId}_portrait.webp`);
+
+  const capturePoster = (input, output, rotate) =>
+    new Promise((resolve, reject) => {
+      if (fs.existsSync(output)) return resolve();
+      const args = [
+        "-y",
+        "-ss",
+        "1",
+        "-i",
+        input,
+        "-frames:v",
+        "1",
+        ...(rotate ? ["-vf", `transpose=${rotate === 90 ? 1 : 2}`] : []),
+        "-quality",
+        "80",
+        output,
+      ];
+      execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
+        if (error) {
+          const message =
+            stderr && stderr.trim()
+              ? `ffmpeg stderr: ${stderr
+                  .trim()
+                  .split("\n")
+                  .slice(-3)
+                  .join(" | ")}`
+              : error.message;
+          return reject(new Error(`Falha ao gerar poster: ${message}`));
+        }
+        resolve();
+      });
+    });
+
+  try {
+    await capturePoster(landscapePath, posterLandscape, 0);
+    if (ENABLE_PORTRAIT_VARIANTS && fs.existsSync(portraitPath)) {
+      await capturePoster(portraitPath, posterPortrait, 0);
+    }
+  } catch (error) {
+    logWeatherWarnOnce("poster-fail", `[poster] ${error.message || "erro"}`);
+  }
+
   return {
     landscapePath,
-    portraitPath,
+    portraitPath: ENABLE_PORTRAIT_VARIANTS ? portraitPath : null,
     width,
     height,
     duration,
     hlsLandscape,
     hlsPortrait,
     mediaId,
+    posterLandscape: resolveRelativeMediaPath(posterLandscape),
+    posterPortrait:
+      ENABLE_PORTRAIT_VARIANTS && fs.existsSync(posterPortrait)
+        ? resolveRelativeMediaPath(posterPortrait)
+        : "",
   };
 };
 
@@ -752,11 +830,27 @@ const processImageUpload = async (filePath, fileName) => {
   if (!sharp) {
     return {
       landscape: { outputPath: filePath, width: null, height: null, variants: [] },
-      portrait: { outputPath: filePath, width: null, height: null, variants: [] },
+      portrait: ENABLE_PORTRAIT_VARIANTS
+        ? { outputPath: filePath, width: null, height: null, variants: [] }
+        : null,
     };
   }
-  const landscape = await processImageVariants(filePath, baseName, "landscape", 0);
-  const portrait = await processImageVariants(filePath, baseName, "portrait", 90);
+  const landscape = await processImageVariants(
+    filePath,
+    baseName,
+    "landscape",
+    0,
+    IMAGE_VARIANTS
+  );
+  const portrait = ENABLE_PORTRAIT_VARIANTS
+    ? await processImageVariants(
+        filePath,
+        baseName,
+        "portrait",
+        90,
+        IMAGE_VARIANTS_PORTRAIT
+      )
+    : null;
   return {
     landscape: {
       outputPath: landscape?.normalizedPath || filePath,
@@ -764,12 +858,14 @@ const processImageUpload = async (filePath, fileName) => {
       height: landscape?.height || null,
       variants: landscape?.variants || [],
     },
-    portrait: {
-      outputPath: portrait?.normalizedPath || filePath,
-      width: portrait?.width || null,
-      height: portrait?.height || null,
-      variants: portrait?.variants || [],
-    },
+    portrait: portrait
+      ? {
+          outputPath: portrait?.normalizedPath || filePath,
+          width: portrait?.width || null,
+          height: portrait?.height || null,
+          variants: portrait?.variants || [],
+        }
+      : null,
   };
 };
 
@@ -2592,7 +2688,7 @@ app.get("/api/catalog", (req, res) => {
   const catalog = readCatalog() || writeCatalog();
   const baseItems = catalog?.targets?.[target]?.items || [];
   const globalItems = catalog?.targets?.todas?.items || [];
-  const combined = [...baseItems, ...globalItems];
+  const combined = target === "todas" ? baseItems : [...baseItems, ...globalItems];
   const unique = [];
   const seen = new Set();
   combined.forEach((item) => {
@@ -2641,8 +2737,10 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
       }
     }
     const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
-    const portraitUrl = resolveRelativeMediaPath(videoResult.portraitPath);
-    if (!landscapeUrl || !portraitUrl) {
+    const portraitUrl = videoResult.portraitPath
+      ? resolveRelativeMediaPath(videoResult.portraitPath)
+      : "";
+    if (!landscapeUrl) {
       return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Caminho de vídeo inválido.");
     }
     item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
@@ -2651,9 +2749,11 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     item.duration = videoResult.duration || null;
     item.id = videoResult.mediaId;
     item.mp4UrlLandscape = landscapeUrl;
-    item.mp4UrlPortrait = portraitUrl;
+    item.mp4UrlPortrait = portraitUrl || "";
     item.hlsMasterUrlLandscape = videoResult.hlsLandscape || "";
     item.hlsMasterUrlPortrait = videoResult.hlsPortrait || "";
+    item.posterUrlLandscape = videoResult.posterLandscape || "";
+    item.posterUrlPortrait = videoResult.posterPortrait || "";
   } else {
     let imageResult;
     try {
@@ -2674,14 +2774,14 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
       bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
     const portraitUrl =
       bestPortrait?.path || resolveRelativeMediaPath(imageResult?.portrait?.outputPath);
-    if (!landscapeUrl || !portraitUrl) {
+    if (!landscapeUrl) {
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Caminho de imagem inválido.");
     }
     item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
     item.width = imageResult?.landscape?.width || null;
     item.height = imageResult?.landscape?.height || null;
     item.posterUrlLandscape = landscapeUrl;
-    item.posterUrlPortrait = portraitUrl;
+    item.posterUrlPortrait = portraitUrl || "";
     item.variantsLandscape = imageResult?.landscape?.variants || [];
     item.variantsPortrait = imageResult?.portrait?.variants || [];
   }
