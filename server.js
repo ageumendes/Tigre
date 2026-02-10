@@ -42,8 +42,7 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const WEATHER_MEDIA_BASE_URL = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 const FORECAST_URL_RAW = process.env.FORECAST_URL;
 const FORECAST_URL = typeof FORECAST_URL_RAW === "string" ? FORECAST_URL_RAW.trim() : "";
-const FORECAST_ENABLED = (process.env.FORECAST_ENABLED || "true").toLowerCase() === "true";
-const FORECAST_URL_DISABLED = typeof FORECAST_URL_RAW === "string" && FORECAST_URL === "";
+const FORECAST_ENABLED = (process.env.FORECAST_ENABLED || "").toLowerCase() === "true";
 const WEATHER_MEDIA_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 const WEATHER_MEDIA_TARGET = "previsaodotempo";
 const WEATHER_API_ENABLED = process.env.ENABLE_WEATHER_API === "true";
@@ -51,6 +50,7 @@ const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
 const STATS_FLUSH_INTERVAL_MS = 1500;
 const WEATHER_LOG_WINDOW_MS = 10 * 60 * 1000;
+const WEATHER_CIRCUIT_BREAKER_MS = 30 * 60 * 1000;
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -113,6 +113,7 @@ let lastWeatherApiCallAt = 0;
 let lastWeatherSuccessAt = 0;
 let lastForecastSkip = false;
 const weatherLogState = new Map();
+let weatherCircuitOpenUntil = 0;
 ({
   lastCall: lastWeatherApiCallAt,
   lastSuccess: lastWeatherSuccessAt,
@@ -964,8 +965,8 @@ const updateWeatherMediaTarget = () => {
 };
 
 const triggerForecastRefresh = async () => {
-  if (!FORECAST_ENABLED || FORECAST_URL_DISABLED) return null;
-  const base = (FORECAST_URL || `${WEATHER_MEDIA_BASE_URL}/api/previsao`).trim();
+  if (!FORECAST_ENABLED || !FORECAST_URL) return null;
+  const base = FORECAST_URL.trim();
   if (!base) return null;
   if (typeof fetch !== "function") {
     logWeatherWarnOnce(
@@ -1035,8 +1036,8 @@ const scheduleWeatherMediaRefresh = () => {
     console.warn("Base da mídia do tempo indefinida; desabilitando atualização automática.");
     return;
   }
-  if (!FORECAST_ENABLED || FORECAST_URL_DISABLED) {
-    console.warn("[forecast-refresh] desativado por env");
+  if (!FORECAST_ENABLED || !FORECAST_URL) {
+    logWeatherWarnOnce("forecast-disabled", "[forecast-refresh] desativado por env");
     return;
   }
   if (!WEATHER_API_ENABLED) {
@@ -1458,6 +1459,13 @@ Não retorne 0; use null quando não houver dado confiável.
 
 app.get("/api/previsao", async (_req, res) => {
   // Retorna previsão do tempo para Seringueiras (RO) via OpenAI Search
+  if (!FORECAST_URL) {
+    return res.status(503).json({
+      ok: false,
+      error: "PREVISAO_INDISPONIVEL",
+      message: "Previsão temporariamente indisponível.",
+    });
+  }
   if (!openai) {
     logWeatherWarnOnce("previsao-no-key", "[previsao] OPENAI_API_KEY ausente.");
     if (cachedWeather) {
@@ -1472,6 +1480,17 @@ app.get("/api/previsao", async (_req, res) => {
 
   if (!WEATHER_API_ENABLED) {
     return res.status(503).json({ error: "Consultas OpenAI para previsão estão desativadas temporariamente." });
+  }
+
+  if (Date.now() < weatherCircuitOpenUntil) {
+    if (cachedWeather) {
+      return res.json({ ...cachedWeather, stale: true });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "PREVISAO_INDISPONIVEL",
+      message: "Previsão temporariamente indisponível.",
+    });
   }
 
   if (Date.now() < weatherFailureCooldownUntil) {
@@ -1601,7 +1620,11 @@ Além da previsão atual e das próximas horas, inclua também a previsão compl
         `previsao-fail-${reason}`,
         `[previsao] falha OpenAI (${reason}); usando stale se disponível.`
       );
-      weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+      if (isRateLimited || isBilling) {
+        weatherCircuitOpenUntil = Date.now() + WEATHER_CIRCUIT_BREAKER_MS;
+      } else {
+        weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+      }
       if (cachedWeather) {
         return res.json({ ...cachedWeather, stale: true });
       }
