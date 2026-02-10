@@ -42,6 +42,7 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const WEATHER_MEDIA_BASE_URL = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 const FORECAST_URL_RAW = process.env.FORECAST_URL;
 const FORECAST_URL = typeof FORECAST_URL_RAW === "string" ? FORECAST_URL_RAW.trim() : "";
+const FORECAST_ENABLED = (process.env.FORECAST_ENABLED || "true").toLowerCase() === "true";
 const FORECAST_URL_DISABLED = typeof FORECAST_URL_RAW === "string" && FORECAST_URL === "";
 const WEATHER_MEDIA_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 const WEATHER_MEDIA_TARGET = "previsaodotempo";
@@ -367,7 +368,6 @@ app.use(
 );
 app.use(compression());
 app.use(express.json());
-app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 app.use(
   "/media",
   mediaCacheHeadersMiddleware,
@@ -381,6 +381,7 @@ app.use(
     },
   })
 );
+app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 
 const findLatestFile = () => {
   try {
@@ -963,11 +964,14 @@ const updateWeatherMediaTarget = () => {
 };
 
 const triggerForecastRefresh = async () => {
-  if (FORECAST_URL_DISABLED) return null;
+  if (!FORECAST_ENABLED || FORECAST_URL_DISABLED) return null;
   const base = (FORECAST_URL || `${WEATHER_MEDIA_BASE_URL}/api/previsao`).trim();
   if (!base) return null;
   if (typeof fetch !== "function") {
-    console.warn("fetch não disponível no ambiente; a previsão não será solicitada automaticamente.");
+    logWeatherWarnOnce(
+      "forecast-fetch-missing",
+      "fetch não disponível no ambiente; a previsão não será solicitada automaticamente."
+    );
     return null;
   }
   const url = `${base}${base.includes("?") ? "&" : "?"}_=${Date.now()}`;
@@ -986,8 +990,9 @@ const triggerForecastRefresh = async () => {
       return null;
     }
     if (response.status === 503 || response.status >= 500) {
+      const statusKey = response.status === 503 ? "forecast-503" : "forecast-5xx";
       logWeatherWarnOnce(
-        "forecast-5xx",
+        statusKey,
         `[forecast-refresh] ${response.status} em ${base}; mantendo mídia existente.`,
         WEATHER_LOG_WINDOW_MS
       );
@@ -1030,8 +1035,8 @@ const scheduleWeatherMediaRefresh = () => {
     console.warn("Base da mídia do tempo indefinida; desabilitando atualização automática.");
     return;
   }
-  if (FORECAST_URL_DISABLED) {
-    console.warn("FORECAST_URL vazio; desabilitando atualização automática da previsão.");
+  if (!FORECAST_ENABLED || FORECAST_URL_DISABLED) {
+    console.warn("[forecast-refresh] desativado por env");
     return;
   }
   if (!WEATHER_API_ENABLED) {
@@ -1454,7 +1459,15 @@ Não retorne 0; use null quando não houver dado confiável.
 app.get("/api/previsao", async (_req, res) => {
   // Retorna previsão do tempo para Seringueiras (RO) via OpenAI Search
   if (!openai) {
-    return res.status(400).json({ error: "OPENAI_API_KEY not set" });
+    logWeatherWarnOnce("previsao-no-key", "[previsao] OPENAI_API_KEY ausente.");
+    if (cachedWeather) {
+      return res.json({ ...cachedWeather, stale: true });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "PREVISAO_INDISPONIVEL",
+      message: "Previsão temporariamente indisponível.",
+    });
   }
 
   if (!WEATHER_API_ENABLED) {
