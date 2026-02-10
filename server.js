@@ -5,6 +5,7 @@ try {
 }
 const { execFile } = require("child_process");
 const express = require("express");
+const compression = require("compression");
 const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
@@ -23,8 +24,10 @@ const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
   : path.join(__dirname, "media");
-const ROTATED_MEDIA_FOLDER = "retacionado";
+const ROTATED_MEDIA_FOLDER = "rotacionado";
+const LEGACY_ROTATED_MEDIA_FOLDER = "retacionado";
 const rotatedMediaDir = path.join(mediaDir, ROTATED_MEDIA_FOLDER);
+const legacyRotatedMediaDir = path.join(mediaDir, LEGACY_ROTATED_MEDIA_FOLDER);
 const screenshotDir = path.join(mediaDir, "screenshots");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
 const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
@@ -37,11 +40,15 @@ const tvConfigFile = path.join(__dirname, "tv-config.json");
 const weatherCallRecordFile = path.join(os.tmpdir(), "tigre-weather-call.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const WEATHER_MEDIA_BASE_URL = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+const FORECAST_URL_RAW = process.env.FORECAST_URL;
+const FORECAST_URL = typeof FORECAST_URL_RAW === "string" ? FORECAST_URL_RAW.trim() : "";
+const FORECAST_URL_DISABLED = typeof FORECAST_URL_RAW === "string" && FORECAST_URL === "";
 const WEATHER_MEDIA_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 const WEATHER_MEDIA_TARGET = "previsaodotempo";
 const WEATHER_API_ENABLED = process.env.ENABLE_WEATHER_API === "true";
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
+const STATS_FLUSH_INTERVAL_MS = 1500;
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -102,6 +109,8 @@ const WEATHER_FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
 const WEATHER_API_CALL_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
 let lastWeatherApiCallAt = 0;
 let lastWeatherSuccessAt = 0;
+let lastForecast404LogAt = 0;
+let lastForecastWas404 = false;
 ({
   lastCall: lastWeatherApiCallAt,
   lastSuccess: lastWeatherSuccessAt,
@@ -170,9 +179,21 @@ const MIME_BY_EXT = {
   ".webp": "image/webp",
 };
 
-fs.mkdirSync(mediaDir, { recursive: true });
-fs.mkdirSync(screenshotDir, { recursive: true });
-fs.mkdirSync(rotatedMediaDir, { recursive: true });
+const ensureDir = (dir) => {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    console.error(`Falha ao criar diretório ${dir}:`, error.message);
+    throw error;
+  }
+};
+
+ensureDir(mediaDir);
+ensureDir(screenshotDir);
+ensureDir(rotatedMediaDir);
+if (fs.existsSync(legacyRotatedMediaDir)) {
+  ensureDir(legacyRotatedMediaDir);
+}
 
 // TVs configuráveis para Roku.
 
@@ -268,6 +289,17 @@ const slugifyId = (value) =>
     .replace(/[^\w-]+/g, "")
     .slice(0, 120);
 
+const resolveMediaPath = (mediaPath) => {
+  if (!mediaPath || typeof mediaPath !== "string") return null;
+  let cleaned = mediaPath.trim();
+  if (!cleaned) return null;
+  if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return null;
+  if (cleaned.startsWith("/")) cleaned = cleaned.slice(1);
+  if (cleaned.startsWith("media/")) cleaned = cleaned.slice("media/".length);
+  if (!cleaned) return null;
+  return path.join(mediaDir, cleaned);
+};
+
 const storageSingle = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, mediaDir),
   filename: (_req, file, cb) => {
@@ -316,20 +348,51 @@ app.use(
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : "*",
   })
 );
+app.use(compression());
 app.use(express.json());
 app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 app.use(
   "/media",
   express.static(mediaDir, {
+    cacheControl: false,
+    etag: true,
+    lastModified: true,
     setHeaders: (res, filePath) => {
       const ext = path.extname(filePath).toLowerCase();
       if (MIME_BY_EXT[ext]) res.setHeader("Content-Type", MIME_BY_EXT[ext]);
-      res.setHeader("Cache-Control", "no-cache");
+      const req = res.req;
+      const hasVersion = !!(req && req.query && (req.query.v || req.query.t));
+      const cacheControl = hasVersion
+        ? "public, max-age=31536000, immutable"
+        : "public, max-age=300";
+      res.setHeader("Cache-Control", cacheControl);
     },
   })
 );
 
 const findLatestFile = () => {
+  try {
+    const config = readMediaConfig();
+    const items = Array.isArray(config?.items) ? config.items : [];
+    if (items.length) {
+      const sorted = [...items].sort(
+        (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+      );
+      for (const item of sorted) {
+        const resolved = resolveMediaPath(item.path);
+        if (!resolved || !fs.existsSync(resolved)) continue;
+        const ext = path.extname(resolved).toLowerCase();
+        return {
+          name: path.basename(resolved),
+          fullPath: resolved,
+          mime: item.mime || MIME_BY_EXT[ext] || "application/octet-stream",
+        };
+      }
+    }
+  } catch (error) {
+    console.warn("Falha ao buscar mídia pelo media-config.json:", error.message);
+  }
+
   const files = fs.readdirSync(mediaDir);
   const candidates = files.filter((file) => {
     const ext = path.extname(file).toLowerCase();
@@ -350,20 +413,7 @@ const findLatestFile = () => {
   };
 };
 
-// Mantido para compatibilidade interna (remove tudo exceto keepName).
-const cleanupKeepingOnly = (keepName) => {
-  const files = fs.readdirSync(mediaDir);
-  for (const file of files) {
-    if (file === keepName) continue;
-    try {
-      fs.unlinkSync(path.join(mediaDir, file));
-    } catch (err) {
-      console.warn(`Não foi possível remover ${file}:`, err.message);
-    }
-  }
-};
-
-const readStats = () => {
+const readStatsFromDisk = () => {
   try {
     if (!fs.existsSync(statsFile)) return [];
     const raw = fs.readFileSync(statsFile, "utf8");
@@ -376,15 +426,30 @@ const readStats = () => {
   }
 };
 
-const writeStats = (events) => {
-  const trimmed = events.slice(-MAX_STATS);
+let statsCache = readStatsFromDisk();
+let statsFlushTimer = null;
+let statsFlushRunning = false;
+
+const getStatsSnapshot = () => (Array.isArray(statsCache) ? [...statsCache] : []);
+
+const flushStatsToDisk = async () => {
+  statsFlushTimer = null;
+  if (statsFlushRunning) return;
+  statsFlushRunning = true;
+  const trimmed = statsCache.slice(-MAX_STATS);
+  statsCache = trimmed;
   try {
-    fs.writeFileSync(statsFile, JSON.stringify(trimmed, null, 2));
+    await fs.promises.writeFile(statsFile, JSON.stringify(trimmed, null, 2));
   } catch (error) {
     console.error("Erro ao gravar stats.json:", error.message);
-    throw error;
+  } finally {
+    statsFlushRunning = false;
   }
-  return trimmed;
+};
+
+const scheduleStatsFlush = () => {
+  if (statsFlushTimer) return;
+  statsFlushTimer = setTimeout(flushStatsToDisk, STATS_FLUSH_INTERVAL_MS);
 };
 
 const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0, max) : "");
@@ -411,6 +476,20 @@ const formatDay = (timestamp) => {
 // ===== Helpers de configuração de mídia =====
 const getMimeFromExt = (ext) => MIME_BY_EXT[ext.toLowerCase()] || "application/octet-stream";
 const isImageExt = (ext) => [".jpg", ".jpeg", ".png", ".webp"].includes(ext.toLowerCase());
+const buildMediaItemUrl = (item, fallbackUpdatedAt) => {
+  if (!item?.path) return "";
+  const version = Math.floor(item.updatedAt || fallbackUpdatedAt || Date.now());
+  return `${item.path}?v=${version}`;
+};
+const enrichMediaItem = (item, fallbackUpdatedAt, fallbackTarget) => {
+  const updatedAt = item.updatedAt || fallbackUpdatedAt || Date.now();
+  return {
+    ...item,
+    target: normalizeTarget(item.target || fallbackTarget),
+    updatedAt,
+    url: item.url || buildMediaItemUrl(item, updatedAt),
+  };
+};
 
 const readMediaConfig = () => {
   try {
@@ -441,6 +520,75 @@ const readMediaConfig = () => {
     console.warn("Erro ao ler media-config.json:", error.message);
     return { targets: {} };
   }
+};
+
+const buildMediaManifestPayload = (requestedTarget) => {
+  const target = normalizeTarget(requestedTarget);
+  const config = readMediaConfig();
+  const configUpdatedAt = config.updatedAt || Date.now();
+  let entry = null;
+
+  if (target === "todas" && Array.isArray(config.items) && config.items.length) {
+    entry = {
+      target,
+      mode: config.mode || "video",
+      items: config.items,
+      updatedAt: configUpdatedAt,
+    };
+  } else if (config.targets?.[target]?.items?.length) {
+    entry = {
+      ...config.targets[target],
+      target,
+      updatedAt: config.targets[target].updatedAt || configUpdatedAt,
+    };
+  }
+
+  if (!entry || !entry.items?.length) {
+    const latest = findLatestFile();
+    if (!latest) return null;
+    const stats = fs.statSync(latest.fullPath);
+    const fallbackItem = {
+      path: `/media/${latest.name}`,
+      mime: latest.mime,
+      size: stats.size,
+      updatedAt: stats.mtimeMs,
+      target,
+      visivel: ensureVisivelValue(undefined, target),
+      ...applyDisplayMetadata(target),
+    };
+    entry = {
+      target,
+      mode: "video",
+      items: [fallbackItem],
+      updatedAt: stats.mtimeMs,
+    };
+  }
+
+  const updatedAt =
+    entry.updatedAt ||
+    entry.items.reduce((max, item) => Math.max(max, item?.updatedAt || 0), 0) ||
+    configUpdatedAt;
+  const items = entry.items.map((item) => enrichMediaItem(item, updatedAt, target));
+  const primary = items[0] || null;
+  const etag = `W/"${target}:${updatedAt}:${items.length}"`;
+  const lastModified = new Date(updatedAt).toUTCString();
+
+  return {
+    etag,
+    lastModified,
+    data: {
+      ok: true,
+      target,
+      mode: entry.mode || "video",
+      updatedAt,
+      items,
+      url: primary?.url,
+      path: primary?.path,
+      mime: primary?.mime,
+      size: primary?.size,
+      configUpdatedAt: entry.updatedAt || configUpdatedAt,
+    },
+  };
 };
 
 const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
@@ -747,6 +895,9 @@ const isWeatherPortraitFresh = (stats) =>
 
 const ensureWeatherPortraitReady = async (baseUrl) => {
   if (!baseUrl) throw new Error("Base pública não definida para gerar o retrato.");
+  if (!WEATHER_API_ENABLED) {
+    throw new Error("Previsão desativada no servidor.");
+  }
   if (fs.existsSync(weatherPortraitPath)) {
     const existing = fs.statSync(weatherPortraitPath);
     if (isWeatherPortraitFresh(existing)) {
@@ -791,24 +942,37 @@ const updateWeatherMediaTarget = () => {
 };
 
 const triggerForecastRefresh = async () => {
-  if (!WEATHER_MEDIA_BASE_URL) {
-    console.warn("PUBLIC_BASE_URL indefinido; não há como consultar /api/previsao automaticamente.");
-    return null;
-  }
+  if (FORECAST_URL_DISABLED) return null;
+  const base = (FORECAST_URL || `${WEATHER_MEDIA_BASE_URL}/api/previsao`).trim();
+  if (!base) return null;
   if (typeof fetch !== "function") {
     console.warn("fetch não disponível no ambiente; a previsão não será solicitada automaticamente.");
     return null;
   }
-  const url = `${WEATHER_MEDIA_BASE_URL}/api/previsao?_=${Date.now()}`;
+  const url = `${base}${base.includes("?") ? "&" : "?"}_=${Date.now()}`;
   try {
-    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (response.status === 404) {
+      const now = Date.now();
+      if (now - lastForecast404LogAt >= 10 * 60 * 1000) {
+        console.warn(`[forecast-refresh] 404 em ${base}; mantendo mídia existente.`);
+        lastForecast404LogAt = now;
+      }
+      lastForecastWas404 = true;
+      return null;
+    }
+    lastForecastWas404 = false;
     if (!response.ok) {
       throw new Error(`status ${response.status} ${response.statusText}`);
     }
   } catch (error) {
-    console.warn(`[forecast-refresh] falha ao chamar ${url}:`, error.message);
+    console.warn(`[forecast-refresh] falha ao chamar ${base}:`, error.message);
     throw error;
   }
+  return null;
 };
 
 const refreshWeatherMediaAssets = async () => {
@@ -817,6 +981,9 @@ const refreshWeatherMediaAssets = async () => {
     return null;
   }
   await triggerForecastRefresh();
+  if (lastForecastWas404) {
+    return null;
+  }
   await ensureWeatherPortraitReady(WEATHER_MEDIA_BASE_URL);
   const updated = updateWeatherMediaTarget();
   if (!updated) {
@@ -828,6 +995,10 @@ const refreshWeatherMediaAssets = async () => {
 const scheduleWeatherMediaRefresh = () => {
   if (!WEATHER_MEDIA_BASE_URL) {
     console.warn("Base da mídia do tempo indefinida; desabilitando atualização automática.");
+    return;
+  }
+  if (FORECAST_URL_DISABLED) {
+    console.warn("FORECAST_URL vazio; desabilitando atualização automática da previsão.");
     return;
   }
   if (!WEATHER_API_ENABLED) {
@@ -857,21 +1028,28 @@ app.get("/api/roku/tvs", (_req, res) => {
 });
 
 app.get("/api/roku/weather-portrait", async (req, res) => {
-  const baseUrl = resolvePublicBaseUrl(req);
-  if (!baseUrl) {
-    return res.status(500).json({ ok: false, error: "Base pública não definida." });
+  if (!WEATHER_API_ENABLED) {
+    if (!fs.existsSync(weatherPortraitPath)) {
+      return res.status(503).json({ ok: false, error: "Previsão desativada no servidor." });
+    }
+  }
+
+  if (!fs.existsSync(weatherPortraitPath)) {
+    return res
+      .status(404)
+      .json({ ok: false, error: "Retrato do tempo ainda não disponível." });
   }
 
   try {
-    const stats = await ensureWeatherPortraitReady(baseUrl);
-    const timestamp = Math.floor(stats.mtimeMs || Date.now());
+    const st = fs.statSync(weatherPortraitPath);
+    const timestamp = Math.floor(st.mtimeMs || Date.now());
     return res.json({
       ok: true,
-      url: `/media/screenshots/${WEATHER_PORTRAIT_FILENAME}?t=${timestamp}`,
+      url: `/media/screenshots/${WEATHER_PORTRAIT_FILENAME}?v=${timestamp}`,
     });
   } catch (error) {
-    console.error("Erro ao gerar retrato do tempo para Roku:", error.message);
-    return res.status(500).json({ ok: false, error: error.message || "Erro ao gerar retrato." });
+    console.error("Erro ao ler retrato do tempo para Roku:", error.message);
+    return res.status(500).json({ ok: false, error: "Erro ao ler retrato do tempo." });
   }
 });
 
@@ -1551,61 +1729,39 @@ app.put("/api/roku/tvs/:id", requireUploadAuth, (req, res) => {
 });
 
 app.get("/api/info", (req, res) => {
-  const target = normalizeTarget(req.query?.target || "todas");
-  const config = readMediaConfig();
-  if (target === "todas" && config.items?.length) {
-    const primary = config.items[0];
-    return res.json({
-      ok: true,
-      target,
-      mode: config.mode || "video",
-      path: primary?.path,
-      mime: primary?.mime,
-      size: primary?.size,
-      updatedAt: config.updatedAt,
-      items: config.items,
-      configUpdatedAt: config.updatedAt,
-    });
-  }
-  const entry = config.targets?.[target];
-  if (entry?.items?.length) {
-    const primary = entry.items[0];
-    return res.json({
-      ok: true,
-      target,
-      mode: entry.mode || "video",
-      path: primary?.path,
-      mime: primary?.mime,
-      size: primary?.size,
-      updatedAt: entry.updatedAt || primary?.updatedAt,
-      items: entry.items,
-      configUpdatedAt: entry.updatedAt || config.updatedAt,
-    });
-  }
-
-  const latest = findLatestFile();
-  if (!latest) {
+  const payload = buildMediaManifestPayload(req.query?.target || "todas");
+  if (!payload) {
     return res.status(404).json({ ok: false, message: "Nenhuma mídia disponível." });
   }
-  const stats = fs.statSync(latest.fullPath);
-  return res.json({
-    ok: true,
-    target,
-    mode: "video",
-    path: `/media/${latest.name}`,
-    mime: latest.mime,
-    size: stats.size,
-    updatedAt: stats.mtimeMs,
-    items: [
-      {
-        path: `/media/${latest.name}`,
-        mime: latest.mime,
-        size: stats.size,
-        updatedAt: stats.mtimeMs,
-        target,
-      },
-    ],
-  });
+
+  const ifNoneMatch = req.headers["if-none-match"];
+  res.setHeader("ETag", payload.etag);
+  res.setHeader("Last-Modified", payload.lastModified);
+  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+
+  if (ifNoneMatch && ifNoneMatch.includes(payload.etag)) {
+    return res.status(304).end();
+  }
+
+  return res.json(payload.data);
+});
+
+app.get("/api/media/manifest", (req, res) => {
+  const payload = buildMediaManifestPayload(req.query?.target || "todas");
+  if (!payload) {
+    return res.status(404).json({ ok: false, message: "Nenhuma mídia disponível." });
+  }
+
+  const ifNoneMatch = req.headers["if-none-match"];
+  res.setHeader("ETag", payload.etag);
+  res.setHeader("Last-Modified", payload.lastModified);
+  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+
+  if (ifNoneMatch && ifNoneMatch.includes(payload.etag)) {
+    return res.status(304).end();
+  }
+
+  return res.json(payload.data);
 });
 
 app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, res) => {
@@ -1710,17 +1866,17 @@ app.get("/media/latest", (_req, res) => {
   const config = readMediaConfig();
   if (config?.items?.length) {
     const primary = config.items[0];
-    const filePath = path.join(mediaDir, path.basename(primary.path));
-    if (!fs.existsSync(filePath)) return res.sendStatus(404);
+    const filePath = resolveMediaPath(primary.path);
+    if (!filePath || !fs.existsSync(filePath)) return res.sendStatus(404);
     res.setHeader("Content-Type", primary.mime || "application/octet-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "public, max-age=300");
     return res.sendFile(filePath);
   }
 
   const latest = findLatestFile();
   if (!latest) return res.sendStatus(404);
   res.setHeader("Content-Type", latest.mime);
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "public, max-age=300");
   return res.sendFile(latest.fullPath);
 });
 
@@ -1815,9 +1971,12 @@ app.post("/api/stats/event", (req, res) => {
   };
 
   try {
-    const events = readStats();
-    events.push(event);
-    writeStats(events);
+    if (!Array.isArray(statsCache)) statsCache = [];
+    statsCache.push(event);
+    if (statsCache.length > MAX_STATS * 2) {
+      statsCache = statsCache.slice(-MAX_STATS);
+    }
+    scheduleStatsFlush();
     return res.json({ ok: true });
   } catch (error) {
     console.error("Erro ao registrar evento:", error.message);
@@ -1826,8 +1985,8 @@ app.post("/api/stats/event", (req, res) => {
 });
 
 app.get("/api/stats/summary", (_req, res) => {
-  const events = readStats();
-const summary = {
+  const events = getStatsSnapshot();
+  const summary = {
     totalEvents: events.length,
     totalVideoStarted: 0,
     totalVideoCompleted: 0,
@@ -1878,7 +2037,7 @@ const summary = {
 app.get("/api/stats/recent", (req, res) => {
   const requested = parseInt(req.query.limit, 10);
   const limit = Number.isFinite(requested) ? Math.min(MAX_STATS, Math.max(1, requested)) : 100;
-  const events = readStats();
+  const events = getStatsSnapshot();
   const recent = events.slice(-limit).reverse();
   return res.json({ ok: true, events: recent });
 });
