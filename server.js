@@ -49,6 +49,7 @@ const WEATHER_API_ENABLED = process.env.ENABLE_WEATHER_API === "true";
 const MAX_STATS = 5000;
 const MAX_PROMOS = 200;
 const STATS_FLUSH_INTERVAL_MS = 1500;
+const WEATHER_LOG_WINDOW_MS = 10 * 60 * 1000;
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -109,8 +110,8 @@ const WEATHER_FAILURE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
 const WEATHER_API_CALL_INTERVAL_MS = 60 * 60 * 1000; // 1 hora
 let lastWeatherApiCallAt = 0;
 let lastWeatherSuccessAt = 0;
-let lastForecast404LogAt = 0;
-let lastForecastWas404 = false;
+let lastForecastSkip = false;
+const weatherLogState = new Map();
 ({
   lastCall: lastWeatherApiCallAt,
   lastSuccess: lastWeatherSuccessAt,
@@ -343,6 +344,22 @@ const uploadCarousel = multer({
   },
 });
 
+const mediaCacheHeadersMiddleware = (req, res, next) => {
+  const url = req?.originalUrl || "";
+  const hasVersion =
+    !!(req && req.query && (req.query.v || req.query.t)) ||
+    url.includes("?v=") ||
+    url.includes("&v=") ||
+    url.includes("?t=") ||
+    url.includes("&t=");
+  res.setHeader(
+    "Cache-Control",
+    hasVersion ? "public, max-age=31536000, immutable" : "public, max-age=300"
+  );
+  res.setHeader("Vary", "Accept-Encoding");
+  next();
+};
+
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : "*",
@@ -353,6 +370,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 app.use(
   "/media",
+  mediaCacheHeadersMiddleware,
   express.static(mediaDir, {
     cacheControl: false,
     etag: true,
@@ -360,12 +378,6 @@ app.use(
     setHeaders: (res, filePath) => {
       const ext = path.extname(filePath).toLowerCase();
       if (MIME_BY_EXT[ext]) res.setHeader("Content-Type", MIME_BY_EXT[ext]);
-      const req = res.req;
-      const hasVersion = !!(req && req.query && (req.query.v || req.query.t));
-      const cacheControl = hasVersion
-        ? "public, max-age=31536000, immutable"
-        : "public, max-age=300";
-      res.setHeader("Cache-Control", cacheControl);
     },
   })
 );
@@ -647,6 +659,15 @@ const markWeatherTargetFailure = () => {
 
 const resetWeatherFailureState = () => {
   weatherFailureCooldownUntil = 0;
+};
+
+const logWeatherWarnOnce = (key, message, everyMs = WEATHER_LOG_WINDOW_MS) => {
+  const now = Date.now();
+  const last = weatherLogState.get(key) || 0;
+  if (now - last >= everyMs) {
+    console.warn(message);
+    weatherLogState.set(key, now);
+  }
 };
 
 const canCallWeatherApi = () =>
@@ -956,20 +977,32 @@ const triggerForecastRefresh = async () => {
       cache: "no-store",
     });
     if (response.status === 404) {
-      const now = Date.now();
-      if (now - lastForecast404LogAt >= 10 * 60 * 1000) {
-        console.warn(`[forecast-refresh] 404 em ${base}; mantendo mídia existente.`);
-        lastForecast404LogAt = now;
-      }
-      lastForecastWas404 = true;
+      logWeatherWarnOnce(
+        "forecast-404",
+        `[forecast-refresh] 404 em ${base}; mantendo mídia existente.`,
+        WEATHER_LOG_WINDOW_MS
+      );
+      lastForecastSkip = true;
       return null;
     }
-    lastForecastWas404 = false;
+    if (response.status === 503 || response.status >= 500) {
+      logWeatherWarnOnce(
+        "forecast-5xx",
+        `[forecast-refresh] ${response.status} em ${base}; mantendo mídia existente.`,
+        WEATHER_LOG_WINDOW_MS
+      );
+      lastForecastSkip = true;
+      return null;
+    }
+    lastForecastSkip = false;
     if (!response.ok) {
       throw new Error(`status ${response.status} ${response.statusText}`);
     }
   } catch (error) {
-    console.warn(`[forecast-refresh] falha ao chamar ${base}:`, error.message);
+    logWeatherWarnOnce(
+      "forecast-error",
+      `[forecast-refresh] falha ao chamar ${base}: ${error.message || "erro"}`
+    );
     throw error;
   }
   return null;
@@ -981,7 +1014,7 @@ const refreshWeatherMediaAssets = async () => {
     return null;
   }
   await triggerForecastRefresh();
-  if (lastForecastWas404) {
+  if (lastForecastSkip) {
     return null;
   }
   await ensureWeatherPortraitReady(WEATHER_MEDIA_BASE_URL);
@@ -1008,8 +1041,13 @@ const scheduleWeatherMediaRefresh = () => {
   const runner = () => {
     if (Date.now() < weatherFailureCooldownUntil) return;
     refreshWeatherMediaAssets().catch((error) => {
-      console.error("Erro ao atualizar mídia do tempo:", error.message);
-      markWeatherTargetFailure();
+      logWeatherWarnOnce(
+        "weather-refresh",
+        `Erro ao atualizar mídia do tempo: ${error.message || "erro"}`
+      );
+      if (!fs.existsSync(weatherPortraitPath)) {
+        markWeatherTargetFailure();
+      }
     });
   };
   runner();
@@ -1425,9 +1463,12 @@ app.get("/api/previsao", async (_req, res) => {
 
   if (Date.now() < weatherFailureCooldownUntil) {
     console.warn("[previsao] cooldown ativo; pulando tentativa para evitar limite.");
+    if (cachedWeather) {
+      return res.json({ ...cachedWeather, stale: true });
+    }
     return res
       .status(503)
-      .json({ error: "Previsão temporariamente indisponível; tente novamente em alguns minutos." });
+      .json({ ok: false, error: "PREVISAO_INDISPONIVEL", message: "Previsão temporariamente indisponível." });
   }
 
   if (cachedWeather && Date.now() - cachedWeatherAt < WEATHER_CACHE_MS) {
@@ -1435,9 +1476,12 @@ app.get("/api/previsao", async (_req, res) => {
   }
 
   if (!canCallWeatherApi()) {
+    if (cachedWeather) {
+      return res.json({ ...cachedWeather, stale: true });
+    }
     return res
-      .status(429)
-      .json({ error: "Limite de consultas para previsão atingido (1 hora). Tente novamente mais tarde." });
+      .status(503)
+      .json({ ok: false, error: "PREVISAO_INDISPONIVEL", message: "Previsão temporariamente indisponível." });
   }
 
   recordWeatherApiCall();
@@ -1496,26 +1540,77 @@ Além da previsão atual e das próximas horas, inclua também a previsão compl
     };
     const outputText = stripCodeBlock(rawOutput);
     if (!outputText.trim()) {
-      console.error("[previsao] resposta sem texto");
-      markWeatherTargetFailure();
-      return res.status(500).json({ error: "Falha ao obter previsão." });
+      logWeatherWarnOnce("previsao-empty", "[previsao] resposta sem texto");
+      weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+      if (cachedWeather) {
+        return res.json({ ...cachedWeather, stale: true });
+      }
+      return res.status(503).json({
+        ok: false,
+        error: "PREVISAO_INDISPONIVEL",
+        message: "Previsão temporariamente indisponível.",
+      });
     }
     let json;
     try {
       json = JSON.parse(outputText);
     } catch (parseError) {
-      console.error("[previsao] parse falhou:", parseError.message, outputText);
-      markWeatherTargetFailure();
-      return res.status(500).json({ error: "Falha ao obter previsão." });
+      logWeatherWarnOnce(
+        "previsao-parse",
+        `[previsao] parse falhou: ${parseError.message}`
+      );
+      weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+      if (cachedWeather) {
+        return res.json({ ...cachedWeather, stale: true });
+      }
+      return res.status(503).json({
+        ok: false,
+        error: "PREVISAO_INDISPONIVEL",
+        message: "Previsão temporariamente indisponível.",
+      });
     }
     cachedWeather = json;
     cachedWeatherAt = Date.now();
     resetWeatherFailureState();
     return res.json(json);
   } catch (error) {
-    console.error("[previsao] erro:", error);
-    markWeatherTargetFailure();
-    return res.status(500).json({ error: "Falha ao obter previsão." });
+    const status = error?.status || error?.response?.status;
+    const code = error?.code || error?.error?.code;
+    const type = error?.type || error?.error?.type;
+    const isRateLimited = status === 429;
+    const isBilling =
+      code === "billing_not_active" || type === "billing_not_active";
+    const isServerError = status >= 500 && status <= 599;
+    const isNetworkError = !status && !!error?.code;
+    if (isRateLimited || isBilling || isServerError || isNetworkError) {
+      const reason = isBilling ? "billing_not_active" : status || error?.code || "unknown";
+      logWeatherWarnOnce(
+        `previsao-fail-${reason}`,
+        `[previsao] falha OpenAI (${reason}); usando stale se disponível.`
+      );
+      weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+      if (cachedWeather) {
+        return res.json({ ...cachedWeather, stale: true });
+      }
+      return res.status(503).json({
+        ok: false,
+        error: "PREVISAO_INDISPONIVEL",
+        message: "Previsão temporariamente indisponível.",
+      });
+    }
+    logWeatherWarnOnce(
+      "previsao-erro",
+      `[previsao] erro inesperado: ${error?.message || "erro desconhecido"}`
+    );
+    weatherFailureCooldownUntil = Date.now() + WEATHER_FAILURE_COOLDOWN_MS;
+    if (cachedWeather) {
+      return res.json({ ...cachedWeather, stale: true });
+    }
+    return res.status(503).json({
+      ok: false,
+      error: "PREVISAO_INDISPONIVEL",
+      message: "Previsão temporariamente indisponível.",
+    });
   }
   // Exemplo:
   // {
