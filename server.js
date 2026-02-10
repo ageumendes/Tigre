@@ -4,9 +4,14 @@ try {
   console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
 }
 const { execFile } = require("child_process");
+const { randomUUID } = require("crypto");
 const express = require("express");
 const compression = require("compression");
+const helmet = require("helmet");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
+const pino = require("pino");
+const pinoHttp = require("pino-http");
 const multer = require("multer");
 const fs = require("fs");
 const os = require("os");
@@ -37,6 +42,8 @@ const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const tvConfigFile = path.join(__dirname, "tv-config.json");
+const pkg = require("./package.json");
+const APP_VERSION = process.env.APP_VERSION || pkg.version || "0.0.0";
 const weatherCallRecordFile = path.join(os.tmpdir(), "tigre-weather-call.json");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || "";
 const WEATHER_MEDIA_BASE_URL = (PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
@@ -51,6 +58,14 @@ const MAX_PROMOS = 200;
 const STATS_FLUSH_INTERVAL_MS = 1500;
 const WEATHER_LOG_WINDOW_MS = 10 * 60 * 1000;
 const WEATHER_CIRCUIT_BREAKER_MS = 30 * 60 * 1000;
+const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || "30", 10) || 30;
+const MAX_CAROUSEL_ITEMS = parseInt(process.env.MAX_CAROUSEL_ITEMS || "20", 10) || 20;
+const ALLOWED_MIME_TYPES = new Set([
+  "video/mp4",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -59,6 +74,14 @@ const SUPPORTED_EVENT_TYPES = new Set([
   "download_clicked",
   "share_clicked",
 ]);
+
+const metrics = {
+  requests_total: 0,
+  uploads_total: 0,
+  stream_206_total: 0,
+  stream_304_total: 0,
+  errors_total: 0,
+};
 
 const ensureNumber = (value) =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -114,6 +137,12 @@ let lastWeatherSuccessAt = 0;
 let lastForecastSkip = false;
 const weatherLogState = new Map();
 let weatherCircuitOpenUntil = 0;
+
+const logger = pino({ level: process.env.LOG_LEVEL || "info" });
+const requestLogger = pinoHttp({
+  logger,
+  genReqId: (req) => req.headers["x-request-id"] || randomUUID(),
+});
 ({
   lastCall: lastWeatherApiCallAt,
   lastSuccess: lastWeatherSuccessAt,
@@ -303,6 +332,140 @@ const resolveMediaPath = (mediaPath) => {
   return path.join(mediaDir, cleaned);
 };
 
+const buildEtagForStats = (stats) =>
+  `W/"${stats.size}-${Math.floor(stats.mtimeMs || 0)}"`;
+
+const isNotModified = (req, etag, lastModifiedMs) => {
+  const ifNoneMatch = req.headers["if-none-match"];
+  if (ifNoneMatch && ifNoneMatch.includes(etag)) return true;
+  const ifModifiedSince = req.headers["if-modified-since"];
+  if (ifModifiedSince) {
+    const since = Date.parse(ifModifiedSince);
+    if (!Number.isNaN(since) && since >= lastModifiedMs) return true;
+  }
+  return false;
+};
+
+const parseRangeHeader = (rangeHeader, size) => {
+  if (!rangeHeader || !rangeHeader.startsWith("bytes=")) return null;
+  const raw = rangeHeader.replace("bytes=", "").trim();
+  const [startStr, endStr] = raw.split("-");
+  let start = startStr ? parseInt(startStr, 10) : NaN;
+  let end = endStr ? parseInt(endStr, 10) : NaN;
+
+  if (!Number.isNaN(start) && start < 0) start = NaN;
+  if (!Number.isNaN(end) && end < 0) end = NaN;
+
+  if (Number.isNaN(start)) {
+    if (Number.isNaN(end)) return null;
+    const suffixLength = end;
+    if (suffixLength <= 0) return null;
+    start = Math.max(size - suffixLength, 0);
+    end = size - 1;
+  } else {
+    if (Number.isNaN(end) || end >= size) end = size - 1;
+  }
+
+  if (start > end || start < 0 || end < 0 || start >= size) return null;
+  return { start, end };
+};
+
+const getMediaCacheControl = (req, absPath) => {
+  const url = req?.originalUrl || "";
+  const hasVersion =
+    !!(req && req.query && (req.query.v || req.query.t)) ||
+    url.includes("?v=") ||
+    url.includes("&v=") ||
+    url.includes("?t=") ||
+    url.includes("&t=");
+  if (hasVersion) {
+    return "public, max-age=31536000, immutable";
+  }
+  const baseName = path.basename(absPath || "").toLowerCase();
+  if (baseName.startsWith("latest")) {
+    return "public, max-age=0, must-revalidate";
+  }
+  return "public, max-age=300";
+};
+
+const sendFileWithRange = (req, res, absPath, mime, options = {}) => {
+  if (!absPath || !fs.existsSync(absPath)) {
+    return res.sendStatus(404);
+  }
+  const stats = fs.statSync(absPath);
+  if (!stats.isFile()) return res.sendStatus(404);
+
+  const cacheControl = options.cacheControl || getMediaCacheControl(req, absPath);
+  const etag = buildEtagForStats(stats);
+  const lastModified = new Date(stats.mtimeMs || Date.now()).toUTCString();
+
+  res.setHeader("Content-Type", mime || "application/octet-stream");
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Cache-Control", cacheControl);
+  res.setHeader("ETag", etag);
+  res.setHeader("Last-Modified", lastModified);
+  res.setHeader("Vary", "Accept-Encoding");
+
+  if (isNotModified(req, etag, stats.mtimeMs || 0)) {
+    metrics.stream_304_total += 1;
+    return res.status(304).end();
+  }
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader) {
+    const range = parseRangeHeader(rangeHeader, stats.size);
+    if (!range) {
+      res.setHeader("Content-Range", `bytes */${stats.size}`);
+      return res.status(416).end();
+    }
+    const { start, end } = range;
+    const chunkSize = end - start + 1;
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${stats.size}`);
+    res.setHeader("Content-Length", chunkSize);
+    metrics.stream_206_total += 1;
+    if (req.method === "HEAD") return res.end();
+    return fs.createReadStream(absPath, { start, end }).pipe(res);
+  }
+
+  res.setHeader("Content-Length", stats.size);
+  if (req.method === "HEAD") return res.end();
+  return fs.createReadStream(absPath).pipe(res);
+};
+
+const sendLatestMedia = (req, res) => {
+  const config = readMediaConfig();
+  if (config?.items?.length) {
+    const primary = config.items[0];
+    const filePath = resolveMediaPath(primary.path);
+    if (!filePath || !fs.existsSync(filePath)) return res.sendStatus(404);
+    return sendFileWithRange(req, res, filePath, primary.mime, {
+      cacheControl: "public, max-age=0, must-revalidate",
+    });
+  }
+
+  const latest = findLatestFile();
+  if (!latest) return res.sendStatus(404);
+  return sendFileWithRange(req, res, latest.fullPath, latest.mime, {
+    cacheControl: "public, max-age=0, must-revalidate",
+  });
+};
+
+const handleMediaRequest = (req, res) => {
+  const relPath = req.path.replace(/^\/media\/?/, "");
+  if (!relPath) return res.sendStatus(404);
+  if (relPath === "latest") {
+    return sendLatestMedia(req, res);
+  }
+  const absPath = path.resolve(mediaDir, relPath);
+  if (!absPath.startsWith(mediaDir)) {
+    return sendJsonError(res, 400, "INVALID_PATH", "Caminho de mídia inválido.");
+  }
+  const ext = path.extname(absPath).toLowerCase();
+  const mime = MIME_BY_EXT[ext] || "application/octet-stream";
+  return sendFileWithRange(req, res, absPath, mime);
+};
+
 const storageSingle = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, mediaDir),
   filename: (_req, file, cb) => {
@@ -326,62 +489,102 @@ const storageCarousel = multer.diskStorage({
 
 const upload = multer({
   storage: storageSingle,
-  limits: { fileSize: (parseInt(process.env.MAX_UPLOAD_MB || "200", 10) || 200) * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const allowed = ALLOWED_EXT.includes(ext);
-    if (!allowed) return cb(new Error("Apenas MP4 ou imagens (jpg/png/webp) são aceitas."));
+    const mime = (file.mimetype || "").toLowerCase();
+    const isVideo = ext === ".mp4";
+    const isImage = isImageExt(ext);
+    if (!ALLOWED_EXT.includes(ext) || !ALLOWED_MIME_TYPES.has(mime)) {
+      const err = new Error("Tipo de arquivo não suportado.");
+      err.statusCode = 415;
+      err.errorCode = "INVALID_MIME";
+      return cb(err);
+    }
+    if (isVideo && mime !== "video/mp4") {
+      const err = new Error("Apenas vídeo MP4 é aceito.");
+      err.statusCode = 415;
+      err.errorCode = "INVALID_MIME";
+      return cb(err);
+    }
+    if (!isVideo && !isImage) {
+      const err = new Error("Apenas imagens (jpg/png/webp) são aceitas.");
+      err.statusCode = 415;
+      err.errorCode = "INVALID_MIME";
+      return cb(err);
+    }
     cb(null, true);
   },
 });
 
 const uploadCarousel = multer({
   storage: storageCarousel,
-  limits: { fileSize: (parseInt(process.env.MAX_UPLOAD_MB || "200", 10) || 200) * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const allowed = isImageExt(ext);
-    if (!allowed) return cb(new Error("Apenas imagens (jpg/png/webp) são aceitas no carrossel."));
+    const mime = (file.mimetype || "").toLowerCase();
+    if (!isImageExt(ext) || !ALLOWED_MIME_TYPES.has(mime) || mime === "video/mp4") {
+      const err = new Error("Apenas imagens (jpg/png/webp) são aceitas no carrossel.");
+      err.statusCode = 415;
+      err.errorCode = "INVALID_MIME";
+      return cb(err);
+    }
     cb(null, true);
   },
 });
 
-const mediaCacheHeadersMiddleware = (req, res, next) => {
-  const url = req?.originalUrl || "";
-  const hasVersion =
-    !!(req && req.query && (req.query.v || req.query.t)) ||
-    url.includes("?v=") ||
-    url.includes("&v=") ||
-    url.includes("?t=") ||
-    url.includes("&t=");
-  res.setHeader(
-    "Cache-Control",
-    hasVersion ? "public, max-age=31536000, immutable" : "public, max-age=300"
-  );
-  res.setHeader("Vary", "Accept-Encoding");
-  next();
+const uploadLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "RATE_LIMITED", message: "Muitas requisições. Tente mais tarde." },
+});
+
+const extrasLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "RATE_LIMITED", message: "Muitas requisições. Tente mais tarde." },
+});
+
+const rawCorsOrigins = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || "";
+const allowedCorsOrigins = rawCorsOrigins
+  .split(/[;,]/)
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowAllCors = process.env.NODE_ENV === "development" && allowedCorsOrigins.length === 0;
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (allowAllCors || rawCorsOrigins === "*") return callback(null, true);
+    if (!origin) return callback(null, true);
+    if (allowedCorsOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("CORS bloqueado"));
+  },
 };
 
+app.set("trust proxy", process.env.TRUST_PROXY || "loopback");
 app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",") : "*",
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+app.use(requestLogger);
+app.use((req, res, next) => {
+  res.setHeader("X-Request-Id", req.id);
+  metrics.requests_total += 1;
+  res.on("finish", () => {
+    if (res.statusCode >= 400) metrics.errors_total += 1;
+  });
+  next();
+});
+app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json());
-app.use(
-  "/media",
-  mediaCacheHeadersMiddleware,
-  express.static(mediaDir, {
-    cacheControl: false,
-    etag: true,
-    lastModified: true,
-    setHeaders: (res, filePath) => {
-      const ext = path.extname(filePath).toLowerCase();
-      if (MIME_BY_EXT[ext]) res.setHeader("Content-Type", MIME_BY_EXT[ext]);
-    },
-  })
-);
+app.get("/media/*", handleMediaRequest);
+app.head("/media/*", handleMediaRequest);
 app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 
 const findLatestFile = () => {
@@ -467,16 +670,18 @@ const scheduleStatsFlush = () => {
 };
 
 const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0, max) : "");
+const sendJsonError = (res, status, error, message) =>
+  res.status(status).json({ ok: false, error, message });
 
 // Middleware simples para exigir senha no upload. Use a variável de ambiente UPLOAD_PASSWORD para trocar o valor.
 const requireUploadAuth = (req, res, next) => {
   const secret = process.env.UPLOAD_PASSWORD;
   const provided = req.headers["x-upload-password"];
   if (!secret) {
-    return res.status(500).json({ ok: false, message: "Senha de upload não configurada no servidor." });
+    return sendJsonError(res, 500, "UPLOAD_PASSWORD_MISSING", "Senha de upload não configurada no servidor.");
   }
   if (provided !== secret) {
-    return res.status(401).json({ ok: false, message: "Senha inválida para upload." });
+    return sendJsonError(res, 401, "UPLOAD_UNAUTHORIZED", "Senha inválida para upload.");
   }
   return next();
 };
@@ -1009,7 +1214,8 @@ const triggerForecastRefresh = async () => {
       "forecast-error",
       `[forecast-refresh] falha ao chamar ${base}: ${error.message || "erro"}`
     );
-    throw error;
+    lastForecastSkip = true;
+    return null;
   }
   return null;
 };
@@ -1097,7 +1303,7 @@ app.get("/api/roku/weather-portrait", async (req, res) => {
   }
 });
 
-app.get("/api/cotacoes-agro", async (_req, res) => {
+app.get("/api/cotacoes-agro", extrasLimiter, async (_req, res) => {
   // Retorna cotações agro via OpenAI + busca web; cache de 15 min
   if (!openai) {
     console.warn("[cotacoes-agro] requisição sem OpenAI key configurada.");
@@ -1459,7 +1665,7 @@ Não retorne 0; use null quando não houver dado confiável.
 
 app.get("/api/previsao", async (_req, res) => {
   // Retorna previsão do tempo para Seringueiras (RO) via OpenAI Search
-  if (!FORECAST_URL) {
+  if (!FORECAST_ENABLED || !FORECAST_URL) {
     return res.status(503).json({
       ok: false,
       error: "PREVISAO_INDISPONIVEL",
@@ -1694,7 +1900,7 @@ const sanitizeArray = (list, live = false) => {
     .filter((game) => game.campeonato || game.time_casa || game.time_fora);
 };
 
-app.get("/api/placares", async (_req, res) => {
+app.get("/api/placares", extrasLimiter, async (_req, res) => {
   const { localDate: hoje, localTime, timezoneLabel } = getLocalDateTimeInfo();
   if (!openai) {
     return res.status(400).json({ error: "OPENAI_API_KEY not set" });
@@ -1802,6 +2008,7 @@ Não retornar jogos de datas diferentes de ${hoje}.
   // }
 });
 
+app.use("/api/extras", extrasLimiter);
 app.get("/api/extras/weather", async (_req, res) => {
   const data = await touchCache("weather", refreshWeather);
   return res.json(data || { ok: false, message: "Sem dados climáticos." });
@@ -1895,9 +2102,9 @@ app.get("/api/media/manifest", (req, res) => {
   return res.json(payload.data);
 });
 
-app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, res) => {
+app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ ok: false, message: "Arquivo ausente no campo 'file'." });
+    return sendJsonError(res, 400, "FILE_MISSING", "Arquivo ausente no campo 'file'.");
   }
 
   const ext = (path.extname(req.file.originalname) || "").toLowerCase();
@@ -1941,11 +2148,15 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
     const keepMediaFiles = collectReferencedFilenames(baseConfig.items);
     cleanupKeeping(keepMediaFiles);
   } catch (error) {
-    return res
-      .status(500)
-      .json({ ok: false, message: "Erro ao salvar configuração da mídia ou atualizar banners da Roku." });
+    return sendJsonError(
+      res,
+      500,
+      "MEDIA_CONFIG_ERROR",
+      "Erro ao salvar configuração da mídia ou atualizar banners da Roku."
+    );
   }
 
+  metrics.uploads_total += 1;
   return res.json({
     ok: true,
     mode,
@@ -1959,14 +2170,24 @@ app.post("/api/upload", requireUploadAuth, upload.single("file"), async (req, re
 });
 
 // Upload de carrossel de imagens (máx. 10).
-app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files", 100), async (req, res) => {
+app.post(
+  "/api/upload-carousel",
+  uploadLimiter,
+  requireUploadAuth,
+  uploadCarousel.array("files", MAX_CAROUSEL_ITEMS),
+  async (req, res) => {
   const files = req.files || [];
   if (!files.length) {
-    return res.status(400).json({ ok: false, message: "Nenhum arquivo enviado (campo 'files')." });
+    return sendJsonError(res, 400, "FILES_MISSING", "Nenhum arquivo enviado (campo 'files').");
   }
 
-  if (files.length > 100) {
-    return res.status(400).json({ ok: false, message: "Envie no máximo 100 imagens para o carrossel." });
+  if (files.length > MAX_CAROUSEL_ITEMS) {
+    return sendJsonError(
+      res,
+      400,
+      "CAROUSEL_LIMIT",
+      `Envie no máximo ${MAX_CAROUSEL_ITEMS} imagens para o carrossel.`
+    );
   }
 
   const target = normalizeTarget(req.body?.target);
@@ -1977,11 +2198,15 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
     cleanupKeeping(keepMediaFiles);
   } catch (error) {
-    return res
-      .status(500)
-      .json({ ok: false, message: "Erro ao salvar configuração do carrossel ou atualizar banners da Roku." });
+    return sendJsonError(
+      res,
+      500,
+      "CAROUSEL_CONFIG_ERROR",
+      "Erro ao salvar configuração do carrossel ou atualizar banners da Roku."
+    );
   }
 
+  metrics.uploads_total += 1;
   return res.json({
     ok: true,
     mode: "carousel",
@@ -1993,23 +2218,8 @@ app.post("/api/upload-carousel", requireUploadAuth, uploadCarousel.array("files"
   });
 });
 
-app.get("/media/latest", (_req, res) => {
-  const config = readMediaConfig();
-  if (config?.items?.length) {
-    const primary = config.items[0];
-    const filePath = resolveMediaPath(primary.path);
-    if (!filePath || !fs.existsSync(filePath)) return res.sendStatus(404);
-    res.setHeader("Content-Type", primary.mime || "application/octet-stream");
-    res.setHeader("Cache-Control", "public, max-age=300");
-    return res.sendFile(filePath);
-  }
-
-  const latest = findLatestFile();
-  if (!latest) return res.sendStatus(404);
-  res.setHeader("Content-Type", latest.mime);
-  res.setHeader("Cache-Control", "public, max-age=300");
-  return res.sendFile(latest.fullPath);
-});
+app.get("/media/latest", sendLatestMedia);
+app.head("/media/latest", sendLatestMedia);
 
 // CRUD simples de promoções (promos.json).
 app.get("/api/promos", (req, res) => {
@@ -2173,10 +2383,82 @@ app.get("/api/stats/recent", (req, res) => {
   return res.json({ ok: true, events: recent });
 });
 
+app.get("/healthz", (_req, res) => {
+  return res.json({ ok: true, uptime: process.uptime(), version: APP_VERSION });
+});
+
+app.get("/readyz", (_req, res) => {
+  let mediaDirOk = false;
+  let mediaConfigOk = true;
+  let tvConfigOk = true;
+  try {
+    mediaDirOk = fs.statSync(mediaDir).isDirectory();
+  } catch (_error) {
+    mediaDirOk = false;
+  }
+  if (fs.existsSync(mediaConfigFile)) {
+    try {
+      fs.readFileSync(mediaConfigFile, "utf8");
+    } catch (_error) {
+      mediaConfigOk = false;
+    }
+  }
+  if (fs.existsSync(tvConfigFile)) {
+    try {
+      fs.readFileSync(tvConfigFile, "utf8");
+    } catch (_error) {
+      tvConfigOk = false;
+    }
+  }
+
+  const ok = mediaDirOk && mediaConfigOk && tvConfigOk;
+  if (!ok) {
+    return res.status(503).json({
+      ok: false,
+      checks: { mediaDir: mediaDirOk, mediaConfig: mediaConfigOk, tvConfig: tvConfigOk },
+    });
+  }
+  return res.json({
+    ok: true,
+    checks: { mediaDir: mediaDirOk, mediaConfig: mediaConfigOk, tvConfig: tvConfigOk },
+  });
+});
+
+app.get("/metrics", (_req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  const lines = [
+    `requests_total ${metrics.requests_total}`,
+    `uploads_total ${metrics.uploads_total}`,
+    `stream_206_total ${metrics.stream_206_total}`,
+    `stream_304_total ${metrics.stream_304_total}`,
+    `errors_total ${metrics.errors_total}`,
+  ];
+  return res.send(`${lines.join("\n")}\n`);
+});
+
 app.use((err, _req, res, _next) => {
+  if (err) {
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return sendJsonError(
+          res,
+          413,
+          "UPLOAD_TOO_LARGE",
+          `Arquivo excede o limite de ${MAX_UPLOAD_MB}MB.`
+        );
+      }
+      return sendJsonError(res, 400, "UPLOAD_ERROR", err.message || "Falha no upload.");
+    }
+    if (err.statusCode && err.errorCode) {
+      return sendJsonError(res, err.statusCode, err.errorCode, err.message || "Erro de requisição.");
+    }
+    if (err.message === "CORS bloqueado") {
+      return sendJsonError(res, 403, "CORS_BLOCKED", "Origem não permitida.");
+    }
+  }
   console.error(err);
-  const message = err.message || "Erro interno";
-  return res.status(400).json({ ok: false, message });
+  const message = err?.message || "Erro interno";
+  return sendJsonError(res, 500, "INTERNAL_ERROR", message);
 });
 
 app.listen(PORT, () => {
