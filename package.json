@@ -22,7 +22,8 @@
     "openweather-apis": "^2.0.11",
     "pino": "^9.0.0",
     "pino-http": "^9.0.0",
-    "puppeteer": "^23.5.3"
+    "puppeteer": "^23.5.3",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

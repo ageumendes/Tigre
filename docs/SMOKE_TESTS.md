@@ -23,3 +23,14 @@ curl -i -X POST http://localhost:3000/api/upload \
   -H "x-upload-password: $UPLOAD_PASSWORD" \
   -F "file=@/tmp/file.txt"
 ```
+
+## Static + Stats + HLS
+```bash
+curl -i http://localhost:3000/images/icon.png -H "Origin: http://localhost:3000"
+curl -i -X POST http://localhost:3000/api/stats/event \
+  -H "Content-Type: application/json" \
+  -d '{"type":"video_started"}'
+curl -I http://localhost:3000/media/latest/master.m3u8
+curl -i http://localhost:3000/api/catalog?target=acougue
+open http://localhost:3000/acougue.html
+```

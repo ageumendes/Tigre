@@ -22,6 +22,13 @@ const ffmpegPath = (ffmpegInstaller && ffmpegInstaller.path) || "ffmpeg";
 if (!ffmpegInstaller?.path) {
   console.warn("FFmpeg instalador não localizado; aguardando binário 'ffmpeg' no PATH.");
 }
+const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
+let sharp = null;
+try {
+  sharp = require("sharp");
+} catch (_error) {
+  console.warn("Sharp não instalado; variantes de imagem ficarão indisponíveis.");
+}
 const { renderWeatherPortrait } = require("./weatherScreenshot");
 
 const app = express();
@@ -34,6 +41,11 @@ const LEGACY_ROTATED_MEDIA_FOLDER = "retacionado";
 const rotatedMediaDir = path.join(mediaDir, ROTATED_MEDIA_FOLDER);
 const legacyRotatedMediaDir = path.join(mediaDir, LEGACY_ROTATED_MEDIA_FOLDER);
 const screenshotDir = path.join(mediaDir, "screenshots");
+const normalizedDir = path.join(mediaDir, "normalized");
+const imagesDir = path.join(mediaDir, "images");
+const imageVariantsDir = path.join(imagesDir, "variants");
+const hlsDir = path.join(mediaDir, "hls");
+const hlsLatestDir = path.join(hlsDir, "latest");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
 const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
 const weatherPortraitPath = path.join(screenshotDir, WEATHER_PORTRAIT_FILENAME);
@@ -66,6 +78,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const ENABLE_HLS = (process.env.ENABLE_HLS || "").toLowerCase() === "true";
+const IMAGE_DURATION_MS = parseInt(process.env.IMAGE_DURATION_MS || "8000", 10) || 8000;
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -209,6 +223,9 @@ const MIME_BY_EXT = {
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
+  ".m3u8": "application/vnd.apple.mpegurl",
+  ".ts": "video/MP2T",
+  ".m4s": "video/iso.segment",
 };
 
 const ensureDir = (dir) => {
@@ -223,6 +240,10 @@ const ensureDir = (dir) => {
 ensureDir(mediaDir);
 ensureDir(screenshotDir);
 ensureDir(rotatedMediaDir);
+ensureDir(normalizedDir);
+ensureDir(imagesDir);
+ensureDir(imageVariantsDir);
+ensureDir(hlsLatestDir);
 if (fs.existsSync(legacyRotatedMediaDir)) {
   ensureDir(legacyRotatedMediaDir);
 }
@@ -272,6 +293,8 @@ const buildAggregateEntry = (targets = {}) => {
   aggregated.mode = modeCandidate || "video";
   return aggregated;
 };
+
+const catalogFile = path.join(__dirname, "catalog.json");
 
 const collectReferencedFilenames = (entries = []) => {
   const keep = new Set();
@@ -330,6 +353,20 @@ const resolveMediaPath = (mediaPath) => {
   if (cleaned.startsWith("media/")) cleaned = cleaned.slice("media/".length);
   if (!cleaned) return null;
   return path.join(mediaDir, cleaned);
+};
+
+const resolveRelativeMediaPath = (absPath) => {
+  if (!absPath) return null;
+  const rel = path.relative(mediaDir, absPath);
+  if (!rel || rel.includes("..")) return null;
+  return `/media/${rel.replace(/\\/g, "/")}`;
+};
+
+const buildItemId = (item) => {
+  if (item?.id) return item.id;
+  const base = item?.path ? path.basename(item.path) : "item";
+  const stamp = Math.floor(item?.updatedAt || Date.now());
+  return `${slugifyId(base)}-${stamp}`;
 };
 
 const buildEtagForStats = (stats) =>
@@ -433,6 +470,302 @@ const sendFileWithRange = (req, res, absPath, mime, options = {}) => {
   return fs.createReadStream(absPath).pipe(res);
 };
 
+const runFfprobe = (filePath) =>
+  new Promise((resolve, reject) => {
+    const args = [
+      "-v",
+      "error",
+      "-print_format",
+      "json",
+      "-show_streams",
+      "-show_format",
+      filePath,
+    ];
+    execFile(ffprobePath, args, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        const message =
+          stderr && stderr.trim()
+            ? `ffprobe stderr: ${stderr
+                .trim()
+                .split("\n")
+                .slice(-3)
+                .join(" | ")}`
+            : error.message;
+        return reject(new Error(`Falha ao ler metadados: ${message}`));
+      }
+      try {
+        const parsed = JSON.parse(stdout || "{}");
+        resolve(parsed);
+      } catch (parseError) {
+        reject(new Error(`Falha ao parsear ffprobe: ${parseError.message}`));
+      }
+    });
+  });
+
+const extractVideoMetadata = (probe) => {
+  const streams = Array.isArray(probe?.streams) ? probe.streams : [];
+  const video = streams.find((stream) => stream.codec_type === "video") || {};
+  const hasAudio = streams.some((stream) => stream.codec_type === "audio");
+  const tags = video.tags || {};
+  const sideData = Array.isArray(video.side_data_list) ? video.side_data_list : [];
+  const rotateTag = parseInt(tags.rotate, 10);
+  const rotateSide = sideData.find((entry) => typeof entry.rotation === "number");
+  const rotation = Number.isFinite(rotateTag)
+    ? rotateTag
+    : Number.isFinite(rotateSide?.rotation)
+    ? rotateSide.rotation
+    : 0;
+  const width = parseInt(video.width, 10) || null;
+  const height = parseInt(video.height, 10) || null;
+  const duration = parseFloat(video.duration || probe?.format?.duration) || null;
+  return { rotation, width, height, duration, hasAudio };
+};
+
+const normalizeRotation = (rotation) => {
+  if (!Number.isFinite(rotation)) return 0;
+  const normalized = ((rotation % 360) + 360) % 360;
+  return normalized;
+};
+
+const transcodeWithRotation = (inputPath, outputPath, rotation) =>
+  new Promise((resolve, reject) => {
+    const filter =
+      rotation === 90
+        ? "transpose=1"
+        : rotation === 270 || rotation === 270 || rotation === 180
+        ? rotation === 180
+          ? "transpose=1,transpose=1"
+          : "transpose=2"
+        : null;
+    const args = [
+      "-i",
+      inputPath,
+      ...(filter ? ["-vf", filter] : []),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "20",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      "-metadata:s:v",
+      "rotate=0",
+      "-y",
+      outputPath,
+    ];
+    execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) {
+        const message =
+          stderr && stderr.trim()
+            ? `ffmpeg stderr: ${stderr
+                .trim()
+                .split("\n")
+                .slice(-3)
+                .join(" | ")}`
+            : error.message;
+        return reject(new Error(`Falha ao normalizar vídeo: ${message}`));
+      }
+      resolve();
+    });
+  });
+
+const generateHlsVariants = (inputPath, target, mediaId, maxHeight, hasAudio) =>
+  new Promise((resolve, reject) => {
+    if (!ENABLE_HLS) return resolve(null);
+    const baseDir = path.join(hlsDir, target || "todas", mediaId);
+    ensureDir(baseDir);
+
+    const renditions = [
+      { height: 240, bitrate: "400k", name: "240p" },
+      { height: 360, bitrate: "800k", name: "360p" },
+      { height: 720, bitrate: "2200k", name: "720p" },
+      { height: 1080, bitrate: "5000k", name: "1080p" },
+    ].filter((r) => !maxHeight || r.height <= maxHeight);
+
+    if (!renditions.length) return resolve(null);
+
+    renditions.forEach((_rendition, index) => {
+      ensureDir(path.join(baseDir, index.toString()));
+    });
+
+    const filterComplex = renditions
+      .map((rendition, index) => {
+        const height = rendition.height;
+        return `[0:v]scale=-2:${height}[v${index}]`;
+      })
+      .join(";");
+
+    const mapArgs = renditions.flatMap((rendition, index) => {
+      const base = [
+        "-map",
+        `[v${index}]`,
+        "-c:v:" + index,
+        "libx264",
+        "-b:v:" + index,
+        rendition.bitrate,
+      ];
+      if (hasAudio) {
+        base.push(
+          "-map",
+          "0:a:0",
+          "-c:a:" + index,
+          "aac",
+          "-b:a:" + index,
+          "128k"
+        );
+      }
+      return base;
+    });
+
+    const varStreamMap = renditions
+      .map((_r, index) => (hasAudio ? `v:${index},a:${index}` : `v:${index}`))
+      .join(" ");
+
+    const args = [
+      "-i",
+      inputPath,
+      "-filter_complex",
+      filterComplex,
+      ...mapArgs,
+      "-f",
+      "hls",
+      "-hls_time",
+      "4",
+      "-hls_playlist_type",
+      "vod",
+      "-hls_segment_filename",
+      path.join(baseDir, "%v", "segment_%03d.ts"),
+      "-master_pl_name",
+      "master.m3u8",
+      "-var_stream_map",
+      varStreamMap,
+      "-y",
+      path.join(baseDir, "%v", "index.m3u8"),
+    ];
+
+    execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) {
+        const message =
+          stderr && stderr.trim()
+            ? `ffmpeg stderr: ${stderr
+                .trim()
+                .split("\n")
+                .slice(-3)
+                .join(" | ")}`
+            : error.message;
+        return reject(new Error(`Falha ao gerar HLS: ${message}`));
+      }
+      resolve({ baseDir, masterPath: path.join(baseDir, "master.m3u8") });
+    });
+  });
+
+const processImageVariants = async (inputPath, baseName) => {
+  if (!sharp) return null;
+  const normalizedPath = path.join(imagesDir, `${baseName}.webp`);
+  const image = sharp(inputPath).rotate();
+  const metadata = await image.metadata();
+  await image.webp({ quality: 85 }).toFile(normalizedPath);
+
+  const variants = [];
+  const landscapeSizes = [1920, 1280, 720];
+  const portraitSizes = [1080, 720];
+  const isPortrait = metadata.height && metadata.width ? metadata.height >= metadata.width : false;
+  const targets = isPortrait ? portraitSizes : landscapeSizes;
+
+  for (const width of targets) {
+    const output = path.join(imageVariantsDir, `${baseName}__w${width}.webp`);
+    await sharp(inputPath)
+      .rotate()
+      .resize({ width })
+      .webp({ quality: 80 })
+      .toFile(output);
+    variants.push({
+      width,
+      path: resolveRelativeMediaPath(output),
+    });
+  }
+
+  return {
+    normalizedPath,
+    width: metadata.width || null,
+    height: metadata.height || null,
+    variants,
+  };
+};
+
+const chooseBestVariant = (variants = []) => {
+  if (!variants.length) return null;
+  const sorted = [...variants].sort((a, b) => (b.width || 0) - (a.width || 0));
+  return sorted[0] || null;
+};
+
+const processVideoUpload = async (filePath, fileName, target) => {
+  const probe = await runFfprobe(filePath);
+  const meta = extractVideoMetadata(probe);
+  const rotation = normalizeRotation(meta.rotation || 0);
+  const baseName = path.parse(fileName).name;
+  let outputPath = filePath;
+  if ([90, 180, 270].includes(rotation)) {
+    outputPath = path.join(normalizedDir, `${baseName}.mp4`);
+    await transcodeWithRotation(filePath, outputPath, rotation);
+  }
+
+  const finalProbe = outputPath === filePath ? probe : await runFfprobe(outputPath);
+  const finalMeta = extractVideoMetadata(finalProbe);
+  const correctedRotation = normalizeRotation(finalMeta.rotation || 0);
+  const width = finalMeta.width || meta.width;
+  const height = finalMeta.height || meta.height;
+  const duration = finalMeta.duration || meta.duration;
+  const mediaId = `${slugifyId(baseName)}-${Date.now()}`;
+
+  let hlsMasterUrl = "";
+  if (ENABLE_HLS) {
+    try {
+      const hlsResult = await generateHlsVariants(
+        outputPath,
+        target,
+        mediaId,
+        height || null,
+        !!finalMeta.hasAudio
+      );
+      if (hlsResult?.masterPath) {
+        hlsMasterUrl = resolveRelativeMediaPath(hlsResult.masterPath) || "";
+      }
+    } catch (error) {
+      logWeatherWarnOnce("hls-fail", `[hls] falha ao gerar HLS: ${error.message || "erro"}`);
+    }
+  }
+
+  return {
+    outputPath,
+    width,
+    height,
+    duration,
+    rotation: correctedRotation,
+    hlsMasterUrl,
+    mediaId,
+  };
+};
+
+const processImageUpload = async (filePath, fileName) => {
+  const baseName = path.parse(fileName).name;
+  if (!sharp) {
+    return { outputPath: filePath, width: null, height: null, variants: [] };
+  }
+  const processed = await processImageVariants(filePath, baseName);
+  return {
+    outputPath: processed?.normalizedPath || filePath,
+    width: processed?.width || null,
+    height: processed?.height || null,
+    variants: processed?.variants || [],
+  };
+};
+
 const sendLatestMedia = (req, res) => {
   const config = readMediaConfig();
   if (config?.items?.length) {
@@ -449,6 +782,67 @@ const sendLatestMedia = (req, res) => {
   return sendFileWithRange(req, res, latest.fullPath, latest.mime, {
     cacheControl: "public, max-age=0, must-revalidate",
   });
+};
+
+const readCatalog = () => {
+  try {
+    if (!fs.existsSync(catalogFile)) return null;
+    const raw = fs.readFileSync(catalogFile, "utf8");
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn("Falha ao ler catalog.json:", error.message);
+    return null;
+  }
+};
+
+const buildCatalogItem = (item) => {
+  if (!item) return null;
+  const id = buildItemId(item);
+  const mp4Url = item.path || "";
+  const meta = {
+    id,
+    type: item.mime && item.mime.startsWith("video/") ? "video" : "image",
+    target: normalizeTarget(item.target || "todas"),
+    mp4Url,
+    hlsMasterUrl: item.hlsMasterUrl || "",
+    posterUrl: item.posterUrl || "",
+    duration: item.duration || null,
+    width: item.width || null,
+    height: item.height || null,
+    updatedAt: item.updatedAt || Date.now(),
+    etag: item.etag || `W/"${id}-${item.updatedAt || 0}"`,
+  };
+  return meta;
+};
+
+const generateCatalogFromConfig = () => {
+  const config = readMediaConfig();
+  const targets = {};
+  const allTargets = new Set(["todas"]);
+  Object.keys(config.targets || {}).forEach((target) => allTargets.add(target));
+
+  allTargets.forEach((target) => {
+    const entry = target === "todas" ? config : config.targets?.[target];
+    const items = Array.isArray(entry?.items) ? entry.items : [];
+    targets[target] = {
+      items: items.map(buildCatalogItem).filter(Boolean),
+    };
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    targets,
+  };
+};
+
+const writeCatalog = () => {
+  const catalog = generateCatalogFromConfig();
+  try {
+    fs.writeFileSync(catalogFile, JSON.stringify(catalog, null, 2));
+  } catch (error) {
+    console.error("Erro ao gravar catalog.json:", error.message);
+  }
+  return catalog;
 };
 
 const handleMediaRequest = (req, res) => {
@@ -555,10 +949,13 @@ const allowedCorsOrigins = rawCorsOrigins
   .map((origin) => origin.trim())
   .filter(Boolean);
 const allowAllCors = process.env.NODE_ENV === "development" && allowedCorsOrigins.length === 0;
+const isLocalhostOrigin = (origin) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin || "");
 const corsOptions = {
   origin: (origin, callback) => {
     if (allowAllCors || rawCorsOrigins === "*") return callback(null, true);
     if (!origin) return callback(null, true);
+    if (isLocalhostOrigin(origin)) return callback(null, true);
     if (allowedCorsOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("CORS bloqueado"));
   },
@@ -583,8 +980,59 @@ app.use((req, res, next) => {
 app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json());
+app.get("/media/latest/master.m3u8", (req, res) => {
+  const config = readMediaConfig();
+  const primary = config?.items?.[0];
+  const hlsMasterUrl = primary?.hlsMasterUrl;
+  let masterPath = null;
+  if (hlsMasterUrl) {
+    masterPath = resolveMediaPath(hlsMasterUrl);
+  }
+  if (!masterPath || !fs.existsSync(masterPath)) {
+    const fallback = path.join(hlsLatestDir, "master.m3u8");
+    if (fs.existsSync(fallback)) masterPath = fallback;
+  }
+  if (!masterPath || !fs.existsSync(masterPath)) return res.sendStatus(404);
+  return sendFileWithRange(req, res, masterPath, MIME_BY_EXT[".m3u8"], {
+    cacheControl: "public, max-age=0, must-revalidate",
+  });
+});
+app.head("/media/latest/master.m3u8", (req, res) => {
+  const config = readMediaConfig();
+  const primary = config?.items?.[0];
+  const hlsMasterUrl = primary?.hlsMasterUrl;
+  let masterPath = null;
+  if (hlsMasterUrl) {
+    masterPath = resolveMediaPath(hlsMasterUrl);
+  }
+  if (!masterPath || !fs.existsSync(masterPath)) {
+    const fallback = path.join(hlsLatestDir, "master.m3u8");
+    if (fs.existsSync(fallback)) masterPath = fallback;
+  }
+  if (!masterPath || !fs.existsSync(masterPath)) return res.sendStatus(404);
+  return sendFileWithRange(req, res, masterPath, MIME_BY_EXT[".m3u8"], {
+    cacheControl: "public, max-age=0, must-revalidate",
+  });
+});
+app.get("/media/hls/*", handleMediaRequest);
+app.head("/media/hls/*", handleMediaRequest);
 app.get("/media/*", handleMediaRequest);
 app.head("/media/*", handleMediaRequest);
+const PLAYER_TARGETS = ["acougue", "hortifrut", "padaria", "todas"];
+const playerTemplate = fs.existsSync(path.join(__dirname, "player.html"))
+  ? fs.readFileSync(path.join(__dirname, "player.html"), "utf8")
+  : "";
+const servePlayer = (target) => (req, res) => {
+  if (!playerTemplate) return res.sendStatus(404);
+  const html = playerTemplate
+    .replace("__PLAYER_TARGET__", target)
+    .replace("__IMAGE_DURATION__", `${IMAGE_DURATION_MS}`);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(html);
+};
+PLAYER_TARGETS.forEach((target) => {
+  app.get(`/${target}.html`, servePlayer(target));
+});
 app.use(express.static(path.join(__dirname), { maxAge: 0 }));
 
 const findLatestFile = () => {
@@ -672,6 +1120,10 @@ const scheduleStatsFlush = () => {
 const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0, max) : "");
 const sendJsonError = (res, status, error, message) =>
   res.status(status).json({ ok: false, error, message });
+const DEVICE_KEYS = (process.env.DEVICE_KEYS || "")
+  .split(";")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 // Middleware simples para exigir senha no upload. Use a variável de ambiente UPLOAD_PASSWORD para trocar o valor.
 const requireUploadAuth = (req, res, next) => {
@@ -682,6 +1134,18 @@ const requireUploadAuth = (req, res, next) => {
   }
   if (provided !== secret) {
     return sendJsonError(res, 401, "UPLOAD_UNAUTHORIZED", "Senha inválida para upload.");
+  }
+  return next();
+};
+
+const requireDeviceKey = (req, res, next) => {
+  if (!DEVICE_KEYS.length) return next();
+  const provided = req.headers["x-device-key"];
+  if (!provided) {
+    return sendJsonError(res, 401, "DEVICE_KEY_MISSING", "Chave do dispositivo ausente.");
+  }
+  if (!DEVICE_KEYS.includes(provided)) {
+    return sendJsonError(res, 403, "DEVICE_KEY_INVALID", "Chave do dispositivo inválida.");
   }
   return next();
 };
@@ -840,6 +1304,7 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
     console.error("Erro ao gravar media-config.json:", error.message);
     throw error;
   }
+  writeCatalog();
   return nextConfig;
 };
 
@@ -892,6 +1357,7 @@ const applyWeatherVisibilityStateFromRecord = () => {
   setWeatherTargetVisibility(lastWeatherSuccessAt > 0);
 };
 applyWeatherVisibilityStateFromRecord();
+writeCatalog();
 
 // Gera a base pública para links do Roku (usa PUBLIC_BASE_URL ou host do request).
 const resolvePublicBaseUrl = (req) => {
@@ -925,6 +1391,7 @@ const writeTvConfig = (tvs) => {
     console.error("Erro ao gravar tv-config.json:", error.message);
     throw error;
   }
+  writeCatalog();
   return safe;
 };
 
@@ -2102,6 +2569,34 @@ app.get("/api/media/manifest", (req, res) => {
   return res.json(payload.data);
 });
 
+app.get("/api/catalog", (req, res) => {
+  const target = normalizeTarget(req.query?.target || "todas");
+  const catalog = readCatalog() || writeCatalog();
+  const baseItems = catalog?.targets?.[target]?.items || [];
+  const globalItems = catalog?.targets?.todas?.items || [];
+  const combined = [...baseItems, ...globalItems];
+  const unique = [];
+  const seen = new Set();
+  combined.forEach((item) => {
+    const id = item?.id || buildItemId(item);
+    if (seen.has(id)) return;
+    seen.add(id);
+    unique.push({ ...item, id });
+  });
+  const etag = `W/"catalog-${target}-${catalog?.generatedAt || "0"}-${unique.length}"`;
+  res.setHeader("ETag", etag);
+  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+  if (req.headers["if-none-match"]?.includes(etag)) {
+    return res.status(304).end();
+  }
+  return res.json({
+    ok: true,
+    target,
+    generatedAt: catalog?.generatedAt,
+    items: unique,
+  });
+});
+
 app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"), async (req, res) => {
   if (!req.file) {
     return sendJsonError(res, 400, "FILE_MISSING", "Arquivo ausente no campo 'file'.");
@@ -2112,37 +2607,46 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
   const mode = isVideo ? "video" : "image";
   const target = normalizeTarget(req.body?.target);
 
+  let item = null;
   if (isVideo) {
-    const rotatedOutput = path.join(rotatedMediaDir, req.file.filename);
+    let videoResult;
     try {
-      await rotateMp4Clockwise(req.file.path, rotatedOutput);
+      videoResult = await processVideoUpload(req.file.path, req.file.filename, target);
     } catch (error) {
-      console.error("Erro ao rotacionar vídeo enviado:", error.message);
-      return res
-        .status(500)
-        .json({ ok: false, message: "Erro ao rotacionar vídeo antes da publicação." });
+      console.error("Erro ao normalizar vídeo enviado:", error.message);
+      return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Erro ao processar vídeo.");
     }
+    const relativePath = resolveRelativeMediaPath(videoResult.outputPath);
+    if (!relativePath) {
+      return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Caminho de vídeo inválido.");
+    }
+    item = summarizeFile(relativePath.replace("/media/", ""), target);
+    item.width = videoResult.width || null;
+    item.height = videoResult.height || null;
+    item.duration = videoResult.duration || null;
+    item.hlsMasterUrl = videoResult.hlsMasterUrl || "";
+    item.id = videoResult.mediaId;
+  } else {
+    let imageResult;
+    try {
+      imageResult = await processImageUpload(req.file.path, req.file.filename);
+    } catch (error) {
+      console.error("Erro ao normalizar imagem:", error.message);
+      return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
+    }
+    const bestVariant = chooseBestVariant(imageResult?.variants);
+    const outputPath = bestVariant?.path || resolveRelativeMediaPath(imageResult.outputPath);
+    if (!outputPath) {
+      return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Caminho de imagem inválido.");
+    }
+    item = summarizeFile(outputPath.replace("/media/", ""), target);
+    item.width = imageResult?.width || null;
+    item.height = imageResult?.height || null;
+    item.variants = imageResult?.variants || [];
   }
 
-  const item = summarizeFile(req.file.filename, target);
   const items = [item];
-  const rotatedRelativePath = isVideo
-    ? `/media/${ROTATED_MEDIA_FOLDER}/${req.file.filename}`
-    : null;
-  let rotatedItem = null;
-  if (isVideo) {
-    const rotatedFileName = path.join(ROTATED_MEDIA_FOLDER, req.file.filename);
-    rotatedItem = summarizeFile(rotatedFileName, target);
-  }
-  const targetItems =
-    target === "acougue" && isVideo && rotatedItem ? [rotatedItem] : items;
-  if (target === "acougue" && isVideo) {
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch (error) {
-      console.warn("Não foi possível remover vídeo original do acougue:", error.message);
-    }
-  }
+  const targetItems = items;
   try {
     const baseConfig = writeMediaConfig(target, mode, targetItems, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(baseConfig.items);
@@ -2191,8 +2695,25 @@ app.post(
   }
 
   const target = normalizeTarget(req.body?.target);
-  const filenames = files.map((file) => file.filename);
-  const items = filenames.map((fileName) => summarizeFile(fileName, target));
+  const items = [];
+  for (const file of files) {
+    try {
+      const imageResult = await processImageUpload(file.path, file.filename);
+      const bestVariant = chooseBestVariant(imageResult?.variants);
+      const outputPath = bestVariant?.path || resolveRelativeMediaPath(imageResult.outputPath);
+      if (!outputPath) {
+        throw new Error("Caminho de imagem inválido.");
+      }
+      const item = summarizeFile(outputPath.replace("/media/", ""), target);
+      item.width = imageResult?.width || null;
+      item.height = imageResult?.height || null;
+      item.variants = imageResult?.variants || [];
+      items.push(item);
+    } catch (error) {
+      console.error("Erro ao processar imagem do carrossel:", error.message);
+      return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
+    }
+  }
   try {
     const nextConfig = writeMediaConfig(target, "carousel", items, target === "todas");
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
@@ -2296,7 +2817,7 @@ app.delete("/api/promos/:id", (req, res) => {
 });
 
 // Registro de eventos simples para dashboard.
-app.post("/api/stats/event", (req, res) => {
+app.post("/api/stats/event", requireDeviceKey, (req, res) => {
   const { type, clientMac, clientIp, ssid, userAgent } = req.body || {};
   if (!SUPPORTED_EVENT_TYPES.has(type)) {
     return res.status(400).json({ ok: false, message: "Tipo de evento inválido." });
