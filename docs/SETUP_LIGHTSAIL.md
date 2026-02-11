@@ -5,6 +5,7 @@
 sudo apt update
 sudo apt install -y ffmpeg
 ```
+O `ffprobe` vem junto com o pacote `ffmpeg` no Ubuntu/Debian.
 
 ## Node.js (recomendado)
 - Node 18+ ou 20 LTS.

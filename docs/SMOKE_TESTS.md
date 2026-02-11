@@ -43,4 +43,9 @@ curl -i -X POST http://localhost:3000/api/upload \
   -F "file=@/tmp/video-rotated.mp4"
 ```
 Verifique se o JSON inclui `mp4UrlLandscape`, `mp4UrlPortrait`, `hlsMasterUrlLandscape` e `hlsMasterUrlPortrait` quando habilitado.
+
+## Doctor
+```bash
+npm run doctor
+```
 ```

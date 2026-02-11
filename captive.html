@@ -496,6 +496,28 @@
       }
     };
 
+    const pickMediaUrl = (item) => {
+      if (!item) return "";
+      if (item.type === "video" || (item.mime && item.mime.startsWith("video/"))) {
+        return item.hlsMasterUrlLandscape || item.mp4UrlLandscape || item.mp4Url || item.path || "";
+      }
+      return (
+        item.posterUrlLandscape ||
+        item.posterUrl ||
+        item.mp4UrlLandscape ||
+        item.mp4Url ||
+        item.path ||
+        ""
+      );
+    };
+
+    const withCacheBust = (url, stamp) => {
+      if (!url) return "";
+      if (url.includes(".m3u8")) return url;
+      const sep = url.includes("?") ? "&" : "?";
+      return `${url}${sep}v=${stamp || Date.now()}`;
+    };
+
     const loadMedia = async () => {
       setStatus("Carregando mídia...");
       clearStoryTimer();
@@ -503,25 +525,21 @@
       completedLogged = false;
 
       try {
-        const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
+        const response = await fetch(buildUrl("/api/catalog?target=roteador"));
         const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.ok) throw new Error(data?.message || "Nenhuma mídia disponível.");
-        const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
-        const items = (data.items || []).map((item) => ({
-          ...item,
-          url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
-          kind: deriveKind(item, mode),
-        }));
-        if (!items.length && data.path) {
-          items.push({
-            path: data.path,
-            url: `${buildUrl(data.path)}?t=${Date.now()}`,
-            mime: data.mime,
-            size: data.size,
-            updatedAt: data.updatedAt,
-            kind: deriveKind(data, mode),
-          });
+        if (!response.ok || !data?.items?.length) {
+          throw new Error(data?.message || "Nenhuma mídia disponível.");
         }
+        const items = data.items.map((item) => {
+          const url = pickMediaUrl(item);
+          const updatedAt = item.updatedAt || Date.now();
+          return {
+            ...item,
+            url: withCacheBust(buildUrl(url), updatedAt),
+            kind: deriveKind(item, item.type === "video" ? "video" : "image"),
+          };
+        });
+        const mode = items.some((item) => item.kind === "video") ? "video" : "image";
         renderMedia(mode, items);
       } catch (error) {
         console.error(error);

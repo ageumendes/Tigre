@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "doctor": "node scripts/doctor.js",
     "weather:snap": "node scripts/snap-weather.js",
     "chrome:install": "npx puppeteer install chrome"
   },

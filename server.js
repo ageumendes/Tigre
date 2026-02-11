@@ -23,6 +23,8 @@ if (!ffmpegInstaller?.path) {
   console.warn("FFmpeg instalador não localizado; aguardando binário 'ffmpeg' no PATH.");
 }
 const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
+let ffmpegAvailable = false;
+let ffprobeAvailable = false;
 let sharp = null;
 try {
   sharp = require("sharp");
@@ -719,7 +721,32 @@ const chooseBestVariant = (variants = []) => {
 };
 
 const processVideoUpload = async (filePath, fileName, target) => {
-  const probe = await runFfprobe(filePath);
+  if (!ffprobeAvailable || !ffmpegAvailable) {
+    return {
+      landscapePath: filePath,
+      portraitPath: null,
+      width: null,
+      height: null,
+      duration: null,
+      hlsLandscape: "",
+      hlsPortrait: "",
+      mediaId: `${slugifyId(path.parse(fileName).name)}-${Date.now()}`,
+      posterLandscape: "",
+      posterPortrait: "",
+      normalized: false,
+      reason: !ffprobeAvailable ? "ffprobe_missing" : "ffmpeg_missing",
+    };
+  }
+
+  let probe;
+  try {
+    probe = await runFfprobe(filePath);
+  } catch (error) {
+    const err = new Error("Arquivo de vídeo inválido.");
+    err.statusCode = 400;
+    err.errorCode = "INVALID_VIDEO";
+    throw err;
+  }
   const meta = extractVideoMetadata(probe);
   const rotation = normalizeRotation(meta.rotation || 0);
   const baseName = path.parse(fileName).name;
@@ -836,6 +863,8 @@ const processVideoUpload = async (filePath, fileName, target) => {
       ENABLE_PORTRAIT_VARIANTS && fs.existsSync(posterPortrait)
         ? resolveRelativeMediaPath(posterPortrait)
         : "",
+    normalized: true,
+    reason: "",
   };
 };
 
@@ -1219,6 +1248,11 @@ const readStatsFromDisk = () => {
   }
 };
 
+const initializeMediaBinaries = async () => {
+  ffmpegAvailable = await checkBinary("ffmpeg", ffmpegPath);
+  ffprobeAvailable = await checkBinary("ffprobe", ffprobePath);
+};
+
 let statsCache = readStatsFromDisk();
 let statsFlushTimer = null;
 let statsFlushRunning = false;
@@ -1486,6 +1520,27 @@ const applyWeatherVisibilityStateFromRecord = () => {
 };
 applyWeatherVisibilityStateFromRecord();
 writeCatalog();
+
+const checkBinary = (label, binPath) =>
+  new Promise((resolve) => {
+    if (binPath && binPath.includes("/") && fs.existsSync(binPath)) {
+      console.log(`[ffmpeg] ${label} ok em: ${binPath}`);
+      return resolve(true);
+    }
+    execFile("which", [binPath], { windowsHide: true }, (error, stdout) => {
+      if (error) {
+        console.warn(`[ffmpeg] ${label} não encontrado; uploads de vídeo serão aceitos sem normalização.`);
+        return resolve(false);
+      }
+      const found = (stdout || "").trim();
+      if (found) {
+        console.log(`[ffmpeg] ${label} ok em: ${found}`);
+        return resolve(true);
+      }
+      console.warn(`[ffmpeg] ${label} não encontrado; uploads de vídeo serão aceitos sem normalização.`);
+      return resolve(false);
+    });
+  });
 
 // Gera a base pública para links do Roku (usa PUBLIC_BASE_URL ou host do request).
 const resolvePublicBaseUrl = (req) => {
@@ -2741,13 +2796,18 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     try {
       videoResult = await processVideoUpload(req.file.path, req.file.filename, target);
     } catch (error) {
+      if (error?.statusCode && error?.errorCode) {
+        return sendJsonError(res, error.statusCode, error.errorCode, error.message);
+      }
       console.error("Erro ao normalizar vídeo enviado:", error.message);
       return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Erro ao processar vídeo.");
     } finally {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (error) {
-        console.warn("Não foi possível remover vídeo original:", error.message);
+      if (videoResult?.normalized) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (error) {
+          console.warn("Não foi possível remover vídeo original:", error.message);
+        }
       }
     }
     const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
@@ -2772,6 +2832,8 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     item.hlsMasterUrlPortrait = videoResult.hlsPortrait || "";
     item.posterUrlLandscape = videoResult.posterLandscape || "";
     item.posterUrlPortrait = videoResult.posterPortrait || "";
+    item.normalized = videoResult.normalized !== false;
+    item.normalizationReason = videoResult.reason || "";
   } else {
     let imageResult;
     try {
@@ -2849,6 +2911,8 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     updatedAt: item.updatedAt,
     items: [item],
     rotatedPath,
+    normalized: item.normalized !== false,
+    reason: item.normalizationReason || "",
   });
 });
 
@@ -3177,6 +3241,9 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
+  initializeMediaBinaries().catch((error) => {
+    console.warn("[ffmpeg] falha ao checar binários:", error.message);
+  });
   scheduleWeatherMediaRefresh();
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
