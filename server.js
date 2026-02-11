@@ -313,9 +313,23 @@ const catalogFile = path.join(__dirname, "catalog.json");
 
 const collectReferencedFilenames = (entries = []) => {
   const keep = new Set();
-  (entries || []).forEach((item) => {
-    const name = item?.path ? path.basename(item.path) : "";
+  const addFromUrl = (value) => {
+    if (!value || typeof value !== "string") return;
+    const clean = value.split("?")[0];
+    if (!clean.startsWith("/media/")) return;
+    const name = path.basename(clean);
     if (name) keep.add(name);
+  };
+  (entries || []).forEach((item) => {
+    addFromUrl(item?.path);
+    addFromUrl(item?.mp4UrlLandscape);
+    addFromUrl(item?.mp4UrlPortrait);
+    addFromUrl(item?.hlsMasterUrlLandscape);
+    addFromUrl(item?.hlsMasterUrlPortrait);
+    addFromUrl(item?.posterUrlLandscape);
+    addFromUrl(item?.posterUrlPortrait);
+    (item?.variantsLandscape || []).forEach((variant) => addFromUrl(variant?.path));
+    (item?.variantsPortrait || []).forEach((variant) => addFromUrl(variant?.path));
   });
   return Array.from(keep);
 };
@@ -2746,6 +2760,10 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
     item.width = videoResult.width || null;
     item.height = videoResult.height || null;
+    item.widthLandscape = videoResult.width || null;
+    item.heightLandscape = videoResult.height || null;
+    item.widthPortrait = videoResult.height || null;
+    item.heightPortrait = videoResult.width || null;
     item.duration = videoResult.duration || null;
     item.id = videoResult.mediaId;
     item.mp4UrlLandscape = landscapeUrl;
@@ -2762,10 +2780,12 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
       console.error("Erro ao normalizar imagem:", error.message);
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
     } finally {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (error) {
-        console.warn("Não foi possível remover imagem original:", error.message);
+      if (sharp) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (error) {
+          console.warn("Não foi possível remover imagem original:", error.message);
+        }
       }
     }
     const bestLandscape = chooseBestVariant(imageResult?.landscape?.variants || []);
@@ -2780,6 +2800,10 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
     item.width = imageResult?.landscape?.width || null;
     item.height = imageResult?.landscape?.height || null;
+    item.widthLandscape = imageResult?.landscape?.width || null;
+    item.heightLandscape = imageResult?.landscape?.height || null;
+    item.widthPortrait = imageResult?.portrait?.width || null;
+    item.heightPortrait = imageResult?.portrait?.height || null;
     item.posterUrlLandscape = landscapeUrl;
     item.posterUrlPortrait = portraitUrl || "";
     item.variantsLandscape = imageResult?.landscape?.variants || [];
@@ -2790,7 +2814,14 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
   const targetItems = items;
   try {
     const baseConfig = writeMediaConfig(target, mode, targetItems, target === "todas");
-    const keepMediaFiles = collectReferencedFilenames(baseConfig.items);
+    const catalog = readCatalog();
+    const catalogItems = catalog
+      ? Object.values(catalog.targets || {}).flatMap((entry) => entry.items || [])
+      : [];
+    const keepMediaFiles = collectReferencedFilenames([
+      ...(baseConfig.items || []),
+      ...catalogItems,
+    ]);
     cleanupKeeping(keepMediaFiles);
   } catch (error) {
     return sendJsonError(
@@ -2802,6 +2833,13 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
   }
 
   metrics.uploads_total += 1;
+  const rotatedPath =
+    item.hlsMasterUrlPortrait ||
+    item.mp4UrlPortrait ||
+    item.posterUrlPortrait ||
+    item.mp4UrlLandscape ||
+    item.posterUrlLandscape ||
+    "";
   return res.json({
     ok: true,
     mode,
@@ -2810,7 +2848,7 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     size: item.size,
     updatedAt: item.updatedAt,
     items: [item],
-    rotatedPath: rotatedRelativePath,
+    rotatedPath,
   });
 });
 
@@ -2861,10 +2899,12 @@ app.post(
       console.error("Erro ao processar imagem do carrossel:", error.message);
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
     } finally {
-      try {
-        fs.unlinkSync(file.path);
-      } catch (error) {
-        console.warn("Não foi possível remover imagem original do carrossel:", error.message);
+      if (sharp) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (error) {
+          console.warn("Não foi possível remover imagem original do carrossel:", error.message);
+        }
       }
     }
   }

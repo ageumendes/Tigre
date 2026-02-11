@@ -39,9 +39,21 @@ const ensureHls = async () => {
 
 const resolveImageUrl = (item) => {
   if (orientation === "portrait") {
-    return item.posterUrlPortrait || item.posterUrlLandscape || item.posterUrl || item.mp4Url;
+    return (
+      item.posterUrlPortrait ||
+      item.posterUrlLandscape ||
+      item.posterUrl ||
+      item.mp4UrlPortrait ||
+      item.mp4UrlLandscape ||
+      item.mp4Url
+    );
   }
-  return item.posterUrlLandscape || item.posterUrl || item.mp4Url;
+  return (
+    item.posterUrlLandscape ||
+    item.posterUrl ||
+    item.mp4UrlLandscape ||
+    item.mp4Url
+  );
 };
 
 const resolveVideoUrl = (item) => {
