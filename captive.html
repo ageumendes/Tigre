@@ -496,19 +496,41 @@
       }
     };
 
+    const resolveMediaUrl = (value) => {
+      if (!value) return "";
+      if (/^https?:\/\//i.test(value)) return value;
+      return buildUrl(value);
+    };
+
+    const buildMediaUrl = (item, fallbackUpdatedAt) => {
+      if (!item) return "";
+      const direct = item.url;
+      if (direct) return resolveMediaUrl(direct);
+      const path = item.path;
+      if (path) {
+        const version = item.updatedAt || fallbackUpdatedAt || Date.now();
+        return resolveMediaUrl(`${path}?v=${Math.floor(version)}`);
+      }
+      return "";
+    };
+
+    const isLegacyVariantUrl = (value) =>
+      typeof value === "string" && value.includes("/media/images/variants/");
+
     const pickMediaUrl = (item) => {
       if (!item) return "";
-      if (item.type === "video" || (item.mime && item.mime.startsWith("video/"))) {
-        return item.hlsMasterUrlLandscape || item.mp4UrlLandscape || item.mp4Url || item.path || "";
-      }
-      return (
-        item.posterUrlLandscape ||
-        item.posterUrl ||
-        item.mp4UrlLandscape ||
-        item.mp4Url ||
-        item.path ||
-        ""
-      );
+      if (item.url && !isLegacyVariantUrl(item.url)) return item.url;
+      if (item.path && !isLegacyVariantUrl(item.path)) return item.path;
+      const fallbackList = [
+        item.mp4Url,
+        item.posterUrl,
+        item.mp4UrlLandscape,
+        item.mp4UrlPortrait,
+        item.posterUrlLandscape,
+        item.posterUrlPortrait,
+      ];
+      const fallback = fallbackList.find((value) => value && !isLegacyVariantUrl(value));
+      return fallback || "";
     };
 
     const withCacheBust = (url, stamp) => {
@@ -533,9 +555,13 @@
         const items = data.items.map((item) => {
           const url = pickMediaUrl(item);
           const updatedAt = item.updatedAt || Date.now();
+          const mediaUrl = buildMediaUrl(
+            { ...item, url, path: item.path || url },
+            updatedAt
+          );
           return {
             ...item,
-            url: withCacheBust(buildUrl(url), updatedAt),
+            url: withCacheBust(mediaUrl, updatedAt),
             kind: deriveKind(item, item.type === "video" ? "video" : "image"),
           };
         });

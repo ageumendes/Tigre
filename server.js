@@ -22,7 +22,13 @@ const ffmpegPath = (ffmpegInstaller && ffmpegInstaller.path) || "ffmpeg";
 if (!ffmpegInstaller?.path) {
   console.warn("FFmpeg instalador não localizado; aguardando binário 'ffmpeg' no PATH.");
 }
-const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
+let ffprobeInstallerPath = null;
+try {
+  ffprobeInstallerPath = require("@ffprobe-installer/ffprobe").path;
+} catch (_error) {
+  ffprobeInstallerPath = null;
+}
+const ffprobePath = process.env.FFPROBE_PATH || ffprobeInstallerPath || "ffprobe";
 let ffmpegAvailable = false;
 let ffprobeAvailable = false;
 let sharp = null;
@@ -476,6 +482,11 @@ const sendFileWithRange = (req, res, absPath, mime, options = {}) => {
 
 const runFfprobe = (filePath) =>
   new Promise((resolve, reject) => {
+    if (!ffprobeAvailable) {
+      const err = new Error("ffprobe não disponível.");
+      err.code = "FFPROBE_UNAVAILABLE";
+      return reject(err);
+    }
     const args = [
       "-v",
       "error",
