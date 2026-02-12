@@ -53,6 +53,19 @@ const setStatus = (message, isError = false) => {
 };
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+const resolveMediaUrl = (value) => {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return buildUrl(value);
+};
+const buildMediaUrl = (item, fallbackUpdatedAt) => {
+  if (!item) return "";
+  if (item.url) return resolveMediaUrl(item.url);
+  if (!item.path) return "";
+  const version = item.updatedAt || fallbackUpdatedAt;
+  const suffix = version ? `?v=${Math.floor(version)}` : "";
+  return `${buildUrl(item.path)}${suffix}`;
+};
 
 const clearStoryTimer = () => {
   if (storyTimer) {
@@ -206,19 +219,24 @@ const loadMedia = async () => {
   clearStoryTimer();
 
   try {
-    const response = await fetch(buildUrl(`/api/info?t=${Date.now()}`), { cache: "no-store" });
+    const response = await fetch(buildUrl("/api/info"));
+    if (response.status === 304 && mediaItems.length) {
+      setStatus("Pronto");
+      return;
+    }
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.message || "Nenhuma mídia disponível.");
     const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
+    const fallbackUpdatedAt = data.updatedAt || data.configUpdatedAt;
     const items = (data.items || []).map((item) => ({
       ...item,
-      url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
+      url: buildMediaUrl(item, fallbackUpdatedAt),
       kind: deriveKind(item, mode),
     }));
     if (!items.length && data.path) {
       items.push({
         path: data.path,
-        url: `${buildUrl(data.path)}?t=${Date.now()}`,
+        url: buildMediaUrl(data, fallbackUpdatedAt),
         mime: data.mime,
         size: data.size,
         updatedAt: data.updatedAt,

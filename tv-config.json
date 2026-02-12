@@ -16,5 +16,11 @@
     "nome": "Hortifrut",
     "tipo": "hortifrut",
     "marca": "lg"
+  },
+  {
+    "id": "teste-te",
+    "nome": "Padaria",
+    "tipo": "padaria",
+    "marca": "androidTV"
   }
 ]

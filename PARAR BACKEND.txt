@@ -1,0 +1,6 @@
+PARAR BACKEND:
+ss -lptn 'sport = :3000' || echo "porta 3000 livre"
+kill -INT 6634
+kill -TERM 6634
+pkill -INT -f "node server.js"
+pkill -9 -f "node server.js"

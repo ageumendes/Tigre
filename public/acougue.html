@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Player Tigre</title>
+    <title>Player Tigre - Açougue</title>
     <link rel="stylesheet" href="/player.css" />
   </head>
   <body>
@@ -26,7 +26,7 @@
           </div>
 
           <div id="controls" class="controls">
-            <button id="btn-fullscreen" type="button">Tela Cheia</button>
+            <button id="btn-fullscreen" type="button">Fullscreen</button>
             <button id="btn-rotate" type="button">Girar</button>
             <button id="btn-prev" type="button">Anterior</button>
             <button id="btn-next" type="button">Próximo</button>
@@ -35,8 +35,10 @@
       </div>
     </div>
     <script>
-      window.PLAYER_TARGET = "__PLAYER_TARGET__";
+      window.PLAYER_TARGET = "acougue";
       window.IMAGE_DURATION_MS = "__IMAGE_DURATION__";
+      window.PLAYER_FORCE_SINGLE = true;
+      window.PLAYER_FORCE_MEDIA_ORIENTATION = "portrait";
     </script>
     <script src="/player.js"></script>
   </body>

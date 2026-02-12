@@ -2,148 +2,688 @@
   "mode": "carousel",
   "items": [
     {
-      "path": "/media/carousel-1767220840886-d92d54.jpeg",
-      "mime": "image/jpeg",
-      "size": 261261,
-      "updatedAt": 1767220840889.5613,
+      "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp",
+      "mime": "image/webp",
+      "size": 491846,
+      "updatedAt": 1770839529552.0027,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
-      "intervalo": ""
+      "intervalo": "",
+      "width": 720,
+      "height": 1280,
+      "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp",
+      "urlPortrait": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp",
+      "variantsLandscape": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w720.webp"
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w720.webp"
+        }
+      ]
     },
     {
-      "path": "/media/carousel-1767220840890-b51b61.jpeg",
-      "mime": "image/jpeg",
-      "size": 252553,
-      "updatedAt": 1767220840891.5613,
+      "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp",
+      "mime": "image/webp",
+      "size": 432812,
+      "updatedAt": 1770839536249.2224,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
-      "intervalo": ""
+      "intervalo": "",
+      "width": 720,
+      "height": 1280,
+      "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp",
+      "urlPortrait": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp",
+      "variantsLandscape": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w720.webp"
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w720.webp"
+        }
+      ]
     },
     {
-      "path": "/media/carousel-1767220840892-a78393.jpeg",
-      "mime": "image/jpeg",
-      "size": 243077,
-      "updatedAt": 1767220840893.5613,
+      "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp",
+      "mime": "image/webp",
+      "size": 500820,
+      "updatedAt": 1770839542599.4287,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
-      "intervalo": ""
+      "intervalo": "",
+      "width": 720,
+      "height": 1280,
+      "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp",
+      "urlPortrait": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp",
+      "variantsLandscape": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w720.webp"
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w720.webp"
+        }
+      ]
     },
     {
-      "path": "/media/carousel-1767220840894-252d64.jpeg",
-      "mime": "image/jpeg",
-      "size": 235160,
-      "updatedAt": 1767220840895.5613,
+      "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp",
+      "mime": "image/webp",
+      "size": 405252,
+      "updatedAt": 1770839549030.6353,
       "target": "todas",
       "visivel": true,
       "exibicao": "10s",
-      "intervalo": ""
+      "intervalo": "",
+      "width": 720,
+      "height": 1280,
+      "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp",
+      "urlPortrait": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp",
+      "variantsLandscape": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w720.webp"
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1920,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp"
+        },
+        {
+          "width": 1280,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1280.webp"
+        },
+        {
+          "width": 1080,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1080.webp"
+        },
+        {
+          "width": 720,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w720.webp"
+        }
+      ]
     },
     {
-      "path": "/media/retacionado/latest-acougue.mp4",
+      "path": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
       "mime": "video/mp4",
-      "size": 3186683,
-      "updatedAt": 1767220861968.8806,
+      "size": 4021103,
+      "updatedAt": 1770861645502.8264,
       "target": "acougue",
       "visivel": true,
       "exibicao": "10s",
-      "intervalo": ""
+      "intervalo": "",
+      "id": "video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522",
+      "width": 464,
+      "height": 832,
+      "widthLandscape": 464,
+      "heightLandscape": 832,
+      "widthPortrait": 832,
+      "heightPortrait": 464,
+      "duration": 12.483333,
+      "urlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
+      "urlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__portrait.mp4",
+      "mp4UrlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
+      "mp4UrlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__portrait.mp4",
+      "hlsMasterUrl": "/media/hls/acougue/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522/portrait/master.m3u8",
+      "hlsMasterUrlLandscape": "",
+      "hlsMasterUrlPortrait": "/media/hls/acougue/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522/portrait/master.m3u8",
+      "posterUrlLandscape": "/media/images/posters/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522_landscape.webp",
+      "posterUrlPortrait": "/media/images/posters/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522_portrait.webp",
+      "variantsVideoLandscape": [
+        {
+          "height": 360,
+          "bitrate": 700000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h360.mp4"
+        },
+        {
+          "height": 720,
+          "bitrate": 2000000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h720.mp4"
+        },
+        {
+          "height": 1080,
+          "bitrate": 4500000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h1080.mp4"
+        }
+      ],
+      "variantsVideoPortrait": [
+        {
+          "height": 360,
+          "bitrate": 700000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h360.mp4"
+        },
+        {
+          "height": 720,
+          "bitrate": 2000000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h720.mp4"
+        },
+        {
+          "height": 1080,
+          "bitrate": 4500000,
+          "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h1080.mp4"
+        }
+      ],
+      "normalized": true,
+      "normalizationReason": ""
     },
     {
-      "path": "/media/screenshots/weather-portrait.jpeg",
-      "mime": "image/jpeg",
-      "size": 28179,
-      "updatedAt": 1767222706264.0176,
-      "target": "previsaodotempo",
-      "visivel": false,
+      "path": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+      "mime": "video/mp4",
+      "size": 3387969,
+      "updatedAt": 1770864104661.2832,
+      "target": "roteador",
+      "visivel": true,
       "exibicao": "10s",
-      "intervalo": "5m"
+      "intervalo": "",
+      "id": "video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588",
+      "width": 480,
+      "height": 848,
+      "widthLandscape": 480,
+      "heightLandscape": 848,
+      "widthPortrait": 848,
+      "heightPortrait": 480,
+      "duration": 16.483333,
+      "urlLandscape": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+      "urlPortrait": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__portrait.mp4",
+      "mp4UrlLandscape": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+      "mp4UrlPortrait": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__portrait.mp4",
+      "hlsMasterUrl": "",
+      "hlsMasterUrlLandscape": "",
+      "hlsMasterUrlPortrait": "",
+      "posterUrlLandscape": "/media/images/posters/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588_landscape.webp",
+      "posterUrlPortrait": "/media/images/posters/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588_portrait.webp",
+      "variantsVideoLandscape": [
+        {
+          "height": 360,
+          "bitrate": 700000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h360.mp4"
+        },
+        {
+          "height": 720,
+          "bitrate": 2000000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h720.mp4"
+        },
+        {
+          "height": 1080,
+          "bitrate": 4500000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h1080.mp4"
+        }
+      ],
+      "variantsVideoPortrait": [
+        {
+          "height": 360,
+          "bitrate": 700000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h360.mp4"
+        },
+        {
+          "height": 720,
+          "bitrate": 2000000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h720.mp4"
+        },
+        {
+          "height": 1080,
+          "bitrate": 4500000,
+          "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h1080.mp4"
+        }
+      ],
+      "normalized": true,
+      "normalizationReason": ""
     }
   ],
-  "updatedAt": 1767222733013,
+  "updatedAt": 1770864201438,
   "targets": {
     "todas": {
       "mode": "carousel",
       "items": [
         {
-          "path": "/media/carousel-1767220840886-d92d54.jpeg",
-          "mime": "image/jpeg",
-          "size": 261261,
-          "updatedAt": 1767220840889.5613,
+          "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp",
+          "mime": "image/webp",
+          "size": 491846,
+          "updatedAt": 1770839529552.0027,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
-          "intervalo": ""
+          "intervalo": "",
+          "width": 720,
+          "height": 1280,
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp",
+          "urlPortrait": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394966-532726-64f9cc54-b6ce-45ea-a325-97dc21eaedc5__portrait__w720.webp"
+            }
+          ]
         },
         {
-          "path": "/media/carousel-1767220840890-b51b61.jpeg",
-          "mime": "image/jpeg",
-          "size": 252553,
-          "updatedAt": 1767220840891.5613,
+          "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp",
+          "mime": "image/webp",
+          "size": 432812,
+          "updatedAt": 1770839536249.2224,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
-          "intervalo": ""
+          "intervalo": "",
+          "width": 720,
+          "height": 1280,
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp",
+          "urlPortrait": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394803-39729f-51c311aa-6b99-4a7f-b81b-88f525301b38__portrait__w720.webp"
+            }
+          ]
         },
         {
-          "path": "/media/carousel-1767220840892-a78393.jpeg",
-          "mime": "image/jpeg",
-          "size": 243077,
-          "updatedAt": 1767220840893.5613,
+          "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp",
+          "mime": "image/webp",
+          "size": 500820,
+          "updatedAt": 1770839542599.4287,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
-          "intervalo": ""
+          "intervalo": "",
+          "width": 720,
+          "height": 1280,
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp",
+          "urlPortrait": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394640-4f6de0-7319352f-c5a8-4423-93e9-7a61dea85e9f__portrait__w720.webp"
+            }
+          ]
         },
         {
-          "path": "/media/carousel-1767220840894-252d64.jpeg",
-          "mime": "image/jpeg",
-          "size": 235160,
-          "updatedAt": 1767220840895.5613,
+          "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp",
+          "mime": "image/webp",
+          "size": 405252,
+          "updatedAt": 1770839549030.6353,
           "target": "todas",
           "visivel": true,
           "exibicao": "10s",
-          "intervalo": ""
+          "intervalo": "",
+          "width": 720,
+          "height": 1280,
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp",
+          "urlPortrait": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1765890394163-eec337-904d0fc3-9de8-403c-a4f5-f2c7e3dbe24e__portrait__w720.webp"
+            }
+          ]
         }
       ],
       "target": "todas",
-      "updatedAt": 1767220840897
+      "updatedAt": 1770839554046
     },
     "acougue": {
       "mode": "video",
       "items": [
         {
-          "path": "/media/retacionado/latest-acougue.mp4",
+          "path": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
           "mime": "video/mp4",
-          "size": 3186683,
-          "updatedAt": 1767220861968.8806,
+          "size": 4021103,
+          "updatedAt": 1770861645502.8264,
           "target": "acougue",
           "visivel": true,
           "exibicao": "10s",
-          "intervalo": ""
+          "intervalo": "",
+          "id": "video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522",
+          "width": 464,
+          "height": 832,
+          "widthLandscape": 464,
+          "heightLandscape": 832,
+          "widthPortrait": 832,
+          "heightPortrait": 464,
+          "duration": 12.483333,
+          "urlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
+          "urlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__portrait.mp4",
+          "mp4UrlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__landscape.mp4",
+          "mp4UrlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e__portrait.mp4",
+          "hlsMasterUrl": "/media/hls/acougue/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522/portrait/master.m3u8",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "/media/hls/acougue/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522/portrait/master.m3u8",
+          "posterUrlLandscape": "/media/images/posters/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522_landscape.webp",
+          "posterUrlPortrait": "/media/images/posters/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522_portrait.webp",
+          "variantsVideoLandscape": [
+            {
+              "height": 360,
+              "bitrate": 700000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h360.mp4"
+            },
+            {
+              "height": 720,
+              "bitrate": 2000000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h720.mp4"
+            },
+            {
+              "height": 1080,
+              "bitrate": 4500000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__landscape__h1080.mp4"
+            }
+          ],
+          "variantsVideoPortrait": [
+            {
+              "height": 360,
+              "bitrate": 700000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h360.mp4"
+            },
+            {
+              "height": 720,
+              "bitrate": 2000000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h720.mp4"
+            },
+            {
+              "height": 1080,
+              "bitrate": 4500000,
+              "path": "/media/videos/variants/video-acougue-sorteio_moto_311225-70aa2be2-b584-4322-b53f-eaf55f7b975e-1770861643522__portrait__h1080.mp4"
+            }
+          ],
+          "normalized": true,
+          "normalizationReason": ""
         }
       ],
       "target": "acougue",
-      "updatedAt": 1767220861993
+      "updatedAt": 1770861683309
     },
-    "previsaodotempo": {
-      "mode": "image",
+    "roteador": {
+      "mode": "video",
       "items": [
         {
-          "path": "/media/screenshots/weather-portrait.jpeg",
-          "mime": "image/jpeg",
-          "size": 28179,
-          "updatedAt": 1767222706264.0176,
-          "target": "previsaodotempo",
-          "visivel": false,
+          "path": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+          "mime": "video/mp4",
+          "size": 3387969,
+          "updatedAt": 1770864104661.2832,
+          "target": "roteador",
+          "visivel": true,
           "exibicao": "10s",
-          "intervalo": "5m"
+          "intervalo": "",
+          "id": "video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588",
+          "width": 480,
+          "height": 848,
+          "widthLandscape": 480,
+          "heightLandscape": 848,
+          "widthPortrait": 848,
+          "heightPortrait": 480,
+          "duration": 16.483333,
+          "urlLandscape": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+          "urlPortrait": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__portrait.mp4",
+          "mp4UrlLandscape": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__landscape.mp4",
+          "mp4UrlPortrait": "/media/normalized/video-roteador-WhatsApp_Video_2025-11-28_at_10.18.52-af0b0285-d357-4e0e-99b1-8444ddac13a6__portrait.mp4",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrlLandscape": "/media/images/posters/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588_landscape.webp",
+          "posterUrlPortrait": "/media/images/posters/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588_portrait.webp",
+          "variantsVideoLandscape": [
+            {
+              "height": 360,
+              "bitrate": 700000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h360.mp4"
+            },
+            {
+              "height": 720,
+              "bitrate": 2000000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h720.mp4"
+            },
+            {
+              "height": 1080,
+              "bitrate": 4500000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__landscape__h1080.mp4"
+            }
+          ],
+          "variantsVideoPortrait": [
+            {
+              "height": 360,
+              "bitrate": 700000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h360.mp4"
+            },
+            {
+              "height": 720,
+              "bitrate": 2000000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h720.mp4"
+            },
+            {
+              "height": 1080,
+              "bitrate": 4500000,
+              "path": "/media/videos/variants/video-roteador-whatsapp_video_2025-11-28_at_101852-af0b0285-d357-4e0e-99b1-8444ddac13a6-1770864102588__portrait__h1080.mp4"
+            }
+          ],
+          "normalized": true,
+          "normalizationReason": ""
         }
       ],
-      "target": "previsaodotempo",
-      "updatedAt": 1767222733012
+      "target": "roteador",
+      "updatedAt": 1770864201438
     }
   }
 }

@@ -274,10 +274,10 @@
     let hasReleased = false;
     let startedLogged = false;
     let completedLogged = false;
-    let mediaMode = "video";
     let mediaItems = [];
     let storyIndex = 0;
     let storyTimer = null;
+    let activeVideo = null;
 
     const applyRoundedFavicon = () => {
       const link = document.querySelector('link[rel="icon"]');
@@ -408,12 +408,6 @@
       });
     };
 
-    const scheduleAutoAdvance = (count, duration = STORY_DURATION) => {
-      clearStoryTimer();
-      if (!count || count < 2 || mediaMode === "video") return;
-      storyTimer = window.setTimeout(() => showMediaAt(storyIndex + 1), duration);
-    };
-
     const renderImage = (item) => {
       if (!mediaContainer) return;
       mediaContainer.innerHTML = "";
@@ -437,13 +431,22 @@
       video.addEventListener("play", logStartedOnce, { once: true });
       video.addEventListener("ended", () => {
         logCompletedOnce();
-        releaseAccess();
+        showMediaAt(storyIndex + 1);
       });
       mediaContainer.appendChild(video);
+      activeVideo = video;
     };
 
     const isVideoItem = (item) =>
-      item?.kind === "video" || (item?.mime && item.mime.startsWith("video/")) || mediaMode === "video";
+      item?.kind === "video" || (item?.mime && item.mime.startsWith("video/"));
+
+    const resetActiveVideo = () => {
+      if (!activeVideo) return;
+      activeVideo.pause();
+      activeVideo.removeAttribute("src");
+      activeVideo.load();
+      activeVideo = null;
+    };
 
     const showMediaAt = (index) => {
       if (!mediaItems.length) return;
@@ -453,6 +456,7 @@
       const item = mediaItems[safeIndex];
       const videoItem = isVideoItem(item);
       clearStoryTimer();
+      resetActiveVideo();
 
       if (videoItem) {
         renderVideo(item);
@@ -464,16 +468,28 @@
       renderProgressBars(count);
       const duration = videoItem ? 0 : STORY_DURATION;
       updateProgressBars(count, storyIndex, duration);
-      if (!videoItem) {
-        scheduleAutoAdvance(count, duration);
+      if (count > 1) {
+        if (videoItem) {
+          const baseDuration =
+            Number.isFinite(item?.duration) && item.duration > 0
+              ? Math.floor(item.duration * 1000)
+              : 0;
+          const safetyDuration = baseDuration ? Math.min(baseDuration + 1500, 90000) : 45000;
+          storyTimer = window.setTimeout(() => showMediaAt(storyIndex + 1), safetyDuration);
+        } else {
+          storyTimer = window.setTimeout(() => showMediaAt(storyIndex + 1), STORY_DURATION);
+        }
       }
     };
 
     const deriveKind = (item, fallbackMode) => {
-      if (item?.kind) return item.kind;
+      const type = (item?.type || item?.kind || "").toLowerCase();
+      if (type === "video" || type === "image") return type;
       if (item?.mime && item.mime.startsWith("video/")) return "video";
-      if (fallbackMode === "video") return "video";
-      return "image";
+      if (item?.mime && item.mime.startsWith("image/")) return "image";
+      if (typeof item?.url === "string" && /\.m3u8(\?|$)/i.test(item.url)) return "video";
+      if (typeof item?.url === "string" && /\.mp4(\?|$)/i.test(item.url)) return "video";
+      return fallbackMode === "video" ? "video" : "image";
     };
 
     const renderMedia = (mode, items) => {
@@ -483,7 +499,6 @@
         renderProgressBars(0);
         return;
       }
-      mediaMode = mode;
       mediaItems = items.map((item) => ({ ...item, kind: deriveKind(item, mode) }));
       startedLogged = false;
       completedLogged = false;
@@ -496,48 +511,112 @@
       }
     };
 
+    const isAbsoluteUrl = (value) => /^https?:\/\//i.test(value || "");
     const resolveMediaUrl = (value) => {
       if (!value) return "";
-      if (/^https?:\/\//i.test(value)) return value;
+      if (isAbsoluteUrl(value)) return value;
       return buildUrl(value);
     };
-
-    const buildMediaUrl = (item, fallbackUpdatedAt) => {
-      if (!item) return "";
-      const direct = item.url;
-      if (direct) return resolveMediaUrl(direct);
-      const path = item.path;
-      if (path) {
-        const version = item.updatedAt || fallbackUpdatedAt || Date.now();
-        return resolveMediaUrl(`${path}?v=${Math.floor(version)}`);
+    const cleanUrl = (value) => (value || "").toString().split("?")[0];
+    const pathExt = (value) => {
+      const match = (value || "").toString().match(/\.([a-z0-9]+)$/i);
+      return match ? match[1] : "";
+    };
+    const pickVariantFromList = (variants = [], orientation = "landscape") => {
+      const list = Array.isArray(variants) ? variants : [];
+      if (!list.length) return "";
+      const filtered = list.filter((entry) =>
+        orientation === "portrait"
+          ? (entry?.path || "").includes("__portrait__")
+          : (entry?.path || "").includes("__landscape__") || !(entry?.path || "").includes("__portrait__")
+      );
+      const sorted = (filtered.length ? filtered : list)
+        .slice()
+        .sort((a, b) => (b.width || 0) - (a.width || 0));
+      return sorted[0]?.path || "";
+    };
+    const pickBestVariantFromFilename = (basePath, orientation = "landscape") => {
+      if (!basePath) return "";
+      const clean = cleanUrl(basePath);
+      if (!clean) return "";
+      if (clean.includes("/media/images/variants/")) {
+        if (/__w\d+/i.test(clean)) {
+          const preferred = orientation === "portrait" ? 1080 : 1920;
+          return clean.replace(/__w\d+/i, `__w${preferred}`);
+        }
+        return clean;
       }
-      return "";
+      if (!clean.includes("/media/images/")) return "";
+      const ext = pathExt(clean) || "webp";
+      const base = clean.replace("/media/images/", "").replace(/\.\w+$/, "");
+      const width = orientation === "portrait" ? 1080 : 1920;
+      return `/media/images/variants/${base}__${orientation}__w${width}.${ext}`;
     };
-
-    const isLegacyVariantUrl = (value) =>
-      typeof value === "string" && value.includes("/media/images/variants/");
-
-    const pickMediaUrl = (item) => {
-      if (!item) return "";
-      if (item.url && !isLegacyVariantUrl(item.url)) return item.url;
-      if (item.path && !isLegacyVariantUrl(item.path)) return item.path;
-      const fallbackList = [
-        item.mp4Url,
-        item.posterUrl,
-        item.mp4UrlLandscape,
-        item.mp4UrlPortrait,
-        item.posterUrlLandscape,
-        item.posterUrlPortrait,
-      ];
-      const fallback = fallbackList.find((value) => value && !isLegacyVariantUrl(value));
-      return fallback || "";
+    const hasCacheBust = (url) => {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        return parsed.searchParams.has("v");
+      } catch (_error) {
+        return url.includes("v=");
+      }
     };
-
     const withCacheBust = (url, stamp) => {
       if (!url) return "";
       if (url.includes(".m3u8")) return url;
+      if (hasCacheBust(url)) return url;
       const sep = url.includes("?") ? "&" : "?";
       return `${url}${sep}v=${stamp || Date.now()}`;
+    };
+    const pickMediaUrl = (item, { kind, purpose, orientation = "landscape" }) => {
+      if (!item) return "";
+      const urlFallback = item.url || item.path || "";
+      if (kind === "video") {
+        const posters =
+          orientation === "portrait"
+            ? [item.posterUrlPortrait, item.posterUrlLandscape, item.posterUrl]
+            : [item.posterUrlLandscape, item.posterUrlPortrait, item.posterUrl];
+        const mp4s =
+          orientation === "portrait"
+            ? [item.mp4UrlPortrait, item.mp4UrlLandscape, item.mp4Url]
+            : [item.mp4UrlLandscape, item.mp4UrlPortrait, item.mp4Url];
+        const hls =
+          orientation === "portrait"
+            ? [item.hlsMasterUrlPortrait, item.hlsMasterUrlLandscape, item.hlsMasterUrl]
+            : [item.hlsMasterUrlLandscape, item.hlsMasterUrlPortrait, item.hlsMasterUrl];
+        if (purpose === "thumb") {
+          return posters.find(Boolean) || mp4s.find(Boolean) || urlFallback;
+        }
+        return mp4s.find(Boolean) || hls.find(Boolean) || urlFallback;
+      }
+
+      const variantFromList =
+        orientation === "portrait"
+          ? pickVariantFromList(item.variantsPortrait, "portrait") ||
+            pickVariantFromList(item.variantsLandscape, "portrait")
+          : pickVariantFromList(item.variantsLandscape, "landscape") ||
+            pickVariantFromList(item.variantsPortrait, "landscape");
+      if (variantFromList) return variantFromList;
+      const variantFromFile =
+        pickBestVariantFromFilename(
+          orientation === "portrait"
+            ? item.posterUrlPortrait ||
+                item.posterUrlLandscape ||
+                item.posterUrl ||
+                item.path ||
+                item.url
+            : item.posterUrlLandscape ||
+                item.posterUrlPortrait ||
+                item.posterUrl ||
+                item.path ||
+                item.url,
+          orientation
+        ) || "";
+      if (variantFromFile) return variantFromFile;
+      const posters =
+        orientation === "portrait"
+          ? [item.posterUrlPortrait, item.posterUrlLandscape, item.posterUrl]
+          : [item.posterUrlLandscape, item.posterUrlPortrait, item.posterUrl];
+      return posters.find(Boolean) || urlFallback;
     };
 
     const loadMedia = async () => {
@@ -547,24 +626,49 @@
       completedLogged = false;
 
       try {
-        const response = await fetch(buildUrl("/api/catalog?target=roteador"));
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.items?.length) {
-          throw new Error(data?.message || "Nenhuma mídia disponível.");
-        }
-        const items = data.items.map((item) => {
-          const url = pickMediaUrl(item);
-          const updatedAt = item.updatedAt || Date.now();
-          const mediaUrl = buildMediaUrl(
-            { ...item, url, path: item.path || url },
-            updatedAt
+        const [todasResp, roteadorResp] = await Promise.all([
+          fetch(buildUrl("/api/catalog?target=todas")),
+          fetch(buildUrl("/api/catalog?target=roteador")),
+        ]);
+        const todasData = await todasResp.json().catch(() => null);
+        const roteadorData = await roteadorResp.json().catch(() => null);
+        const itemsTodas = Array.isArray(todasData?.items) ? todasData.items : [];
+        const itemsRoteador = Array.isArray(roteadorData?.items) ? roteadorData.items : [];
+        if (!todasResp.ok && !roteadorResp.ok) {
+          throw new Error(
+            todasData?.message || roteadorData?.message || "Nenhuma mídia disponível."
           );
-          return {
-            ...item,
-            url: withCacheBust(mediaUrl, updatedAt),
-            kind: deriveKind(item, item.type === "video" ? "video" : "image"),
-          };
+        }
+        // Ordem escolhida: roteador primeiro, depois todas.
+        const itemsAll = [...itemsRoteador, ...itemsTodas];
+        const unique = new Map();
+        itemsAll.forEach((item) => {
+          if (!item) return;
+          const key = item.id || item.path || item.url || JSON.stringify(item);
+          if (!unique.has(key)) unique.set(key, item);
         });
+        const items = Array.from(unique.values())
+          .map((item) => {
+            const kind = deriveKind(item, item.type === "video" ? "video" : "image");
+            const rawUrl = pickMediaUrl(item, {
+              kind,
+              purpose: "play",
+              orientation: "landscape",
+            });
+            if (!rawUrl) return null;
+            const updatedAt = item.updatedAt || Date.now();
+            const resolved = resolveMediaUrl(rawUrl);
+            const finalUrl = withCacheBust(resolved, updatedAt);
+            return {
+              ...item,
+              url: finalUrl,
+              kind: deriveKind(
+                { ...item, url: finalUrl },
+                item.type === "video" ? "video" : "image"
+              ),
+            };
+          })
+          .filter(Boolean);
         const mode = items.some((item) => item.kind === "video") ? "video" : "image";
         renderMedia(mode, items);
       } catch (error) {

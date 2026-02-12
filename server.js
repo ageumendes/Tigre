@@ -4,7 +4,7 @@ try {
   console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
 }
 const { execFile } = require("child_process");
-const { randomUUID } = require("crypto");
+const { randomUUID, createHash } = require("crypto");
 const express = require("express");
 const compression = require("compression");
 const helmet = require("helmet");
@@ -40,6 +40,7 @@ try {
 const { renderWeatherPortrait } = require("./weatherScreenshot");
 
 const app = express();
+app.disable("x-powered-by");
 const PORT = process.env.PORT || 3000;
 const mediaDir = process.env.MEDIA_DIR
   ? path.resolve(process.env.MEDIA_DIR)
@@ -51,8 +52,9 @@ const normalizedDir = path.join(mediaDir, "normalized");
 const imagesDir = path.join(mediaDir, "images");
 const imageVariantsDir = path.join(imagesDir, "variants");
 const posterDir = path.join(imagesDir, "posters");
+const videoVariantsDir = path.join(mediaDir, "videos", "variants");
 const hlsDir = path.join(mediaDir, "hls");
-const hlsLatestDir = path.join(hlsDir, "latest");
+const hlsLatestDir = path.join(mediaDir, "latest");
 const WEATHER_PORTRAIT_CACHE_MS = 5 * 60 * 1000;
 const WEATHER_PORTRAIT_FILENAME = "weather-portrait.jpeg";
 const weatherPortraitPath = path.join(screenshotDir, WEATHER_PORTRAIT_FILENAME);
@@ -79,6 +81,10 @@ const STATS_FLUSH_INTERVAL_MS = 1500;
 const WEATHER_LOG_WINDOW_MS = 10 * 60 * 1000;
 const WEATHER_CIRCUIT_BREAKER_MS = 30 * 60 * 1000;
 const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || "30", 10) || 30;
+const MAX_TRANSCODE_JOBS = Math.max(
+  1,
+  parseInt(process.env.MAX_TRANSCODE_JOBS || "1", 10) || 1
+);
 const MAX_CAROUSEL_ITEMS = parseInt(process.env.MAX_CAROUSEL_ITEMS || "20", 10) || 20;
 const ALLOWED_MIME_TYPES = new Set([
   "video/mp4",
@@ -86,22 +92,32 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
-const ENABLE_HLS = (process.env.ENABLE_HLS || "").toLowerCase() === "true";
 const ENABLE_PORTRAIT_VARIANTS =
   (process.env.ENABLE_PORTRAIT_VARIANTS || "true").toLowerCase() === "true";
 const IMAGE_DURATION_MS = parseInt(process.env.IMAGE_DURATION_MS || "8000", 10) || 8000;
-const HLS_RENDITIONS = (process.env.HLS_RENDITIONS || "240,360,720,1080")
+const IMAGE_VARIANTS_ALL = (process.env.IMAGE_VARIANTS_ALL || "1920,1280,1080,720")
   .split(",")
   .map((value) => parseInt(value.trim(), 10))
   .filter((value) => Number.isFinite(value));
-const IMAGE_VARIANTS = (process.env.IMAGE_VARIANTS || "1920,1280,720")
+const IMAGE_VARIANTS = IMAGE_VARIANTS_ALL;
+const IMAGE_VARIANTS_PORTRAIT = IMAGE_VARIANTS_ALL;
+const VIDEO_VARIANTS = (process.env.VIDEO_VARIANTS || "360,720,1080")
   .split(",")
   .map((value) => parseInt(value.trim(), 10))
   .filter((value) => Number.isFinite(value));
-const IMAGE_VARIANTS_PORTRAIT = (process.env.IMAGE_VARIANTS_PORTRAIT || "1080,720")
-  .split(",")
-  .map((value) => parseInt(value.trim(), 10))
-  .filter((value) => Number.isFinite(value));
+const VIDEO_PRESET = process.env.VIDEO_PRESET || "veryfast";
+const FFMPEG_CRF = parseInt(process.env.FFMPEG_CRF || "20", 10) || 20;
+const ENABLE_HLS = (process.env.ENABLE_HLS || "").toLowerCase() === "true";
+const HLS_SEGMENT_TIME = 4;
+const HLS_GOP = 48;
+const HLS_AUDIO_BITRATE = (process.env.HLS_AUDIO_BITRATE || "128k").trim() || "128k";
+const HLS_FORCE_FPS = (process.env.HLS_FORCE_FPS || "").trim();
+const HLS_BITRATE_MAP_RAW = (process.env.HLS_BITRATE_MAP || "").trim();
+const HLS_RENDITIONS = [360, 720, 1080];
+const FORCE_REGEN_HLS = (process.env.FORCE_REGEN_HLS || "").toLowerCase() === "true";
+const KEEP_ALIVE_TIMEOUT_SECONDS = 30;
+const KEEP_ALIVE_TIMEOUT_MS = KEEP_ALIVE_TIMEOUT_SECONDS * 1000;
+console.log("[BOOT] HLS ENABLED =", ENABLE_HLS);
 const SUPPORTED_EVENT_TYPES = new Set([
   "video_started",
   "video_completed",
@@ -117,6 +133,47 @@ const metrics = {
   stream_206_total: 0,
   stream_304_total: 0,
   errors_total: 0,
+};
+
+let manifestVersion = Date.now();
+const manifestClients = new Set();
+let manifestKeepAliveTimer = null;
+const PING_BIN = Buffer.alloc(200 * 1024, 0);
+
+const broadcastManifestUpdate = () => {
+  if (!manifestClients.size) return;
+  const payload = JSON.stringify({ manifestVersion });
+  manifestClients.forEach((res) => {
+    try {
+      res.write(`event: manifestUpdated\ndata: ${payload}\n\n`);
+    } catch (_error) {}
+  });
+};
+
+const bumpManifestVersion = () => {
+  manifestVersion = Date.now();
+  broadcastManifestUpdate();
+};
+
+const registerManifestClient = (res) => {
+  manifestClients.add(res);
+  res.on("close", () => {
+    manifestClients.delete(res);
+    if (!manifestClients.size && manifestKeepAliveTimer) {
+      clearInterval(manifestKeepAliveTimer);
+      manifestKeepAliveTimer = null;
+    }
+  });
+  if (!manifestKeepAliveTimer) {
+    manifestKeepAliveTimer = setInterval(() => {
+      if (!manifestClients.size) return;
+      manifestClients.forEach((client) => {
+        try {
+          client.write(`: ping\n\n`);
+        } catch (_error) {}
+      });
+    }, 20000);
+  }
 };
 
 const ensureNumber = (value) =>
@@ -260,11 +317,15 @@ const ensureDir = (dir) => {
 };
 
 ensureDir(mediaDir);
+const uploadTmpDir = path.join(mediaDir, ".tmp");
+ensureDir(uploadTmpDir);
 ensureDir(screenshotDir);
 ensureDir(normalizedDir);
 ensureDir(imagesDir);
 ensureDir(imageVariantsDir);
 ensureDir(posterDir);
+ensureDir(videoVariantsDir);
+ensureDir(hlsDir);
 ensureDir(hlsLatestDir);
 ensureDir(publicDir);
 if (fs.existsSync(legacyRotatedMediaDir)) {
@@ -325,17 +386,20 @@ const collectReferencedFilenames = (entries = []) => {
     if (!value || typeof value !== "string") return;
     const clean = value.split("?")[0];
     if (!clean.startsWith("/media/")) return;
-    const name = path.basename(clean);
-    if (name) keep.add(name);
+    const rel = clean.replace(/^\/media\//, "");
+    if (rel) keep.add(rel);
   };
   (entries || []).forEach((item) => {
     addFromUrl(item?.path);
     addFromUrl(item?.mp4UrlLandscape);
     addFromUrl(item?.mp4UrlPortrait);
-    addFromUrl(item?.hlsMasterUrlLandscape);
-    addFromUrl(item?.hlsMasterUrlPortrait);
     addFromUrl(item?.posterUrlLandscape);
     addFromUrl(item?.posterUrlPortrait);
+    addFromUrl(item?.hlsMasterUrl);
+    addFromUrl(item?.hlsMasterUrlLandscape);
+    addFromUrl(item?.hlsMasterUrlPortrait);
+    (item?.variantsVideoLandscape || []).forEach((variant) => addFromUrl(variant?.path));
+    (item?.variantsVideoPortrait || []).forEach((variant) => addFromUrl(variant?.path));
     (item?.variantsLandscape || []).forEach((variant) => addFromUrl(variant?.path));
     (item?.variantsPortrait || []).forEach((variant) => addFromUrl(variant?.path));
   });
@@ -368,6 +432,13 @@ const resolveRelativeMediaPath = (absPath) => {
   return `/media/${rel.replace(/\\/g, "/")}`;
 };
 
+const safeBasename = (value) =>
+  (value || "")
+    .toString()
+    .replace(/[/\\]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .slice(0, 120) || "file";
+
 const buildItemId = (item) => {
   if (item?.id) return item.id;
   const base = item?.path ? path.basename(item.path) : "item";
@@ -377,6 +448,19 @@ const buildItemId = (item) => {
 
 const buildEtagForStats = (stats) =>
   `W/"${stats.size}-${Math.floor(stats.mtimeMs || 0)}"`;
+const buildStrongEtag = (prefix, payload) => {
+  const hash = createHash("sha256").update(payload).digest("hex");
+  return `"${prefix}:${hash}"`;
+};
+
+const getFileMtimeMs = (filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return 0;
+    return Math.floor(fs.statSync(filePath).mtimeMs || 0);
+  } catch (_error) {
+    return 0;
+  }
+};
 
 const isNotModified = (req, etag, lastModifiedMs) => {
   const ifNoneMatch = req.headers["if-none-match"];
@@ -391,7 +475,10 @@ const isNotModified = (req, etag, lastModifiedMs) => {
 
 const parseRangeHeader = (rangeHeader, size) => {
   if (!rangeHeader || !rangeHeader.startsWith("bytes=")) return null;
-  const raw = rangeHeader.replace("bytes=", "").trim();
+  const raw = rangeHeader
+    .replace("bytes=", "")
+    .split(",")[0]
+    .trim();
   const [startStr, endStr] = raw.split("-");
   let start = startStr ? parseInt(startStr, 10) : NaN;
   let end = endStr ? parseInt(endStr, 10) : NaN;
@@ -413,6 +500,21 @@ const parseRangeHeader = (rangeHeader, size) => {
   return { start, end };
 };
 
+const shouldApplyRange = (req, etag, lastModifiedMs) => {
+  const ifRange = req.headers["if-range"];
+  if (!ifRange) return true;
+  if (ifRange.startsWith("\"") || ifRange.startsWith("W/\"")) {
+    return ifRange === etag;
+  }
+  const parsed = Date.parse(ifRange);
+  if (Number.isNaN(parsed)) return false;
+  return Math.floor(parsed / 1000) >= Math.floor(lastModifiedMs / 1000);
+};
+
+const isVersionedName = (value) =>
+  /[0-9]{10,}/.test(value) ||
+  /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(value);
+
 const getMediaCacheControl = (req, absPath) => {
   const url = req?.originalUrl || "";
   const hasVersion =
@@ -422,15 +524,25 @@ const getMediaCacheControl = (req, absPath) => {
     url.includes("?t=") ||
     url.includes("&t=");
   const ext = path.extname(absPath || "").toLowerCase();
-  if (ext === ".m3u8") {
+  const rel = absPath ? absPath.replace(mediaDir, "").replace(/\\/g, "/") : "";
+  const fileName = path.basename(absPath || "");
+  const baseName = fileName.toLowerCase();
+  const isVariantImage = rel.includes("/images/variants/");
+  const isVersionedAsset = isVersionedName(rel) || isVersionedName(fileName);
+  const isManifest = ext === ".m3u8";
+  const isHlsSegment = ext === ".ts";
+
+  if (isManifest || isHlsSegment) {
+    return "no-cache";
+  }
+  if (baseName.startsWith("latest") || rel.startsWith("/latest/")) {
     return "public, max-age=0, must-revalidate";
+  }
+  if (isVariantImage && isVersionedAsset) {
+    return "public, max-age=31536000, immutable";
   }
   if (hasVersion) {
     return "public, max-age=31536000, immutable";
-  }
-  const baseName = path.basename(absPath || "").toLowerCase();
-  if (baseName.startsWith("latest")) {
-    return "public, max-age=0, must-revalidate";
   }
   return "public, max-age=300";
 };
@@ -458,8 +570,30 @@ const sendFileWithRange = (req, res, absPath, mime, options = {}) => {
     return res.status(304).end();
   }
 
+  const streamWithCleanup = (stream) => {
+    const cleanup = () => {
+      if (!stream.destroyed) {
+        stream.destroy();
+      }
+    };
+    res.on("close", cleanup);
+    stream.on("error", (error) => {
+      console.warn("Erro ao streamar arquivo:", error.message);
+      cleanup();
+      if (!res.headersSent) {
+        res.sendStatus(500);
+      } else {
+        res.destroy();
+      }
+    });
+    stream.pipe(res);
+    return stream;
+  };
+
   const rangeHeader = req.headers.range;
-  if (rangeHeader) {
+  const allowRange =
+    (mime || "").toLowerCase() === "video/mp4" || shouldApplyRange(req, etag, stats.mtimeMs || 0);
+  if (rangeHeader && allowRange) {
     const range = parseRangeHeader(rangeHeader, stats.size);
     if (!range) {
       res.setHeader("Content-Range", `bytes */${stats.size}`);
@@ -472,20 +606,18 @@ const sendFileWithRange = (req, res, absPath, mime, options = {}) => {
     res.setHeader("Content-Length", chunkSize);
     metrics.stream_206_total += 1;
     if (req.method === "HEAD") return res.end();
-    return fs.createReadStream(absPath, { start, end }).pipe(res);
+    return streamWithCleanup(fs.createReadStream(absPath, { start, end }));
   }
 
   res.setHeader("Content-Length", stats.size);
   if (req.method === "HEAD") return res.end();
-  return fs.createReadStream(absPath).pipe(res);
+  return streamWithCleanup(fs.createReadStream(absPath));
 };
 
 const runFfprobe = (filePath) =>
   new Promise((resolve, reject) => {
     if (!ffprobeAvailable) {
-      const err = new Error("ffprobe não disponível.");
-      err.code = "FFPROBE_UNAVAILABLE";
-      return reject(err);
+      return resolve(null);
     }
     const args = [
       "-v",
@@ -498,6 +630,10 @@ const runFfprobe = (filePath) =>
     ];
     execFile(ffprobePath, args, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
+        if (error.code === "ENOENT") {
+          console.warn("[ffprobe] binário não encontrado; seguindo sem metadados.");
+          return resolve(null);
+        }
         const message =
           stderr && stderr.trim()
             ? `ffprobe stderr: ${stderr
@@ -561,7 +697,13 @@ const transcodeWithRotation = (inputPath, outputPath, rotation) =>
       "-preset",
       "veryfast",
       "-crf",
-      "20",
+      String(FFMPEG_CRF),
+      "-g",
+      String(HLS_GOP),
+      "-keyint_min",
+      String(HLS_GOP),
+      "-sc_threshold",
+      "0",
       "-c:a",
       "aac",
       "-b:a",
@@ -589,86 +731,311 @@ const transcodeWithRotation = (inputPath, outputPath, rotation) =>
     });
   });
 
-const generateHlsVariants = (inputPath, target, mediaId, variantLabel, maxHeight, hasAudio) =>
-  new Promise((resolve, reject) => {
-    if (!ENABLE_HLS) return resolve(null);
-    const baseDir = path.join(hlsDir, target || "todas", mediaId, variantLabel || "landscape");
-    ensureDir(baseDir);
+const getVideoBitrateForHeight = (height) => {
+  if (height <= 360) return 700000;
+  if (height <= 720) return 2000000;
+  return 4500000;
+};
 
-    const renditions = HLS_RENDITIONS.map((height) => {
-      if (height <= 240) return { height, bitrate: "400k", name: `${height}p` };
-      if (height <= 360) return { height, bitrate: "800k", name: `${height}p` };
-      if (height <= 720) return { height, bitrate: "2200k", name: `${height}p` };
-      return { height, bitrate: "5000k", name: `${height}p` };
-    }).filter((r) => !maxHeight || r.height <= maxHeight);
+const ensureEven = (value) => {
+  const rounded = Math.round(value);
+  return rounded % 2 === 0 ? rounded : rounded + 1;
+};
 
-    if (!renditions.length) return resolve(null);
+const parseBitrateToNumber = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  const suffix = lower.slice(-1);
+  const num = parseFloat(lower);
+  if (!Number.isFinite(num)) return null;
+  if (suffix === "k") return Math.round(num * 1000);
+  if (suffix === "m") return Math.round(num * 1000000);
+  return Math.round(num);
+};
 
-    renditions.forEach((_rendition, index) => {
-      ensureDir(path.join(baseDir, index.toString()));
-    });
-
-    const filterComplex = renditions
-      .map((rendition, index) => {
-        const height = rendition.height;
-        return `[0:v]scale=-2:${height}[v${index}]`;
-      })
-      .join(";");
-
-    const mapArgs = renditions.flatMap((rendition, index) => {
-      const base = [
-        "-map",
-        `[v${index}]`,
-        "-c:v:" + index,
-        "libx264",
-        "-b:v:" + index,
-        rendition.bitrate,
-      ];
-      if (hasAudio) {
-        base.push(
-          "-map",
-          "0:a:0",
-          "-c:a:" + index,
-          "aac",
-          "-b:a:" + index,
-          "128k"
-        );
+const parseHlsBitrateMap = (raw) => {
+  if (!raw) return null;
+  const map = new Map();
+  raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .forEach((entry) => {
+      const [heightRaw, bitrateRaw] = entry.split("=");
+      const height = parseInt((heightRaw || "").trim(), 10);
+      const bitrate = (bitrateRaw || "").trim();
+      if (!Number.isFinite(height) || !bitrate) {
+        console.warn(`[hls] HLS_BITRATE_MAP inválido: "${entry}"`);
+        return;
       }
-      return base;
+      map.set(height, bitrate);
     });
+  return map.size ? map : null;
+};
 
-    const varStreamMap = renditions
-      .map((_r, index) => (hasAudio ? `v:${index},a:${index}` : `v:${index}`))
-      .join(" ");
+const HLS_BITRATE_MAP = parseHlsBitrateMap(HLS_BITRATE_MAP_RAW);
 
-    const args = [
-      "-i",
-      inputPath,
-      "-filter_complex",
-      filterComplex,
-      ...mapArgs,
-      "-g",
-      "48",
-      "-keyint_min",
-      "48",
-      "-sc_threshold",
-      "0",
-      "-f",
-      "hls",
-      "-hls_time",
-      "4",
-      "-hls_playlist_type",
-      "vod",
-      "-hls_segment_filename",
-      path.join(baseDir, "%v", "segment_%03d.ts"),
-      "-master_pl_name",
-      "master.m3u8",
-      "-var_stream_map",
-      varStreamMap,
-      "-y",
-      path.join(baseDir, "%v", "index.m3u8"),
-    ];
+const getHlsBitrateForHeight = (height) => {
+  if (HLS_BITRATE_MAP && HLS_BITRATE_MAP.has(height)) {
+    return HLS_BITRATE_MAP.get(height);
+  }
+  const fallback = getVideoBitrateForHeight(height);
+  return `${Math.round(fallback / 1000)}k`;
+};
 
+const estimateWidthFromHeight = (height, orientation) => {
+  const ratio = orientation === "portrait" ? 9 / 16 : 16 / 9;
+  return ensureEven(height * ratio);
+};
+
+const buildHlsRenditions = (_sourceHeight, orientation) => {
+  const heights = Array.isArray(HLS_RENDITIONS) && HLS_RENDITIONS.length ? HLS_RENDITIONS : [];
+  const seen = new Set();
+  const unique = [];
+  heights.forEach((height) => {
+    const evenHeight = ensureEven(height);
+    if (!evenHeight || seen.has(evenHeight)) return;
+    seen.add(evenHeight);
+    unique.push(evenHeight);
+  });
+  return unique.map((height) => {
+    const bitrate = getHlsBitrateForHeight(height);
+    const bandwidth = parseBitrateToNumber(bitrate) || getVideoBitrateForHeight(height);
+    return {
+      height,
+      width: estimateWidthFromHeight(height, orientation),
+      bitrate,
+      bandwidth,
+    };
+  });
+};
+
+const parseStreamInfAttributes = (line) => {
+  const index = line.indexOf(":");
+  if (index < 0) return [];
+  const body = line.slice(index + 1);
+  const parts = [];
+  let current = "";
+  let inQuotes = false;
+  for (const char of body) {
+    if (char === "\"") inQuotes = !inQuotes;
+    if (char === "," && !inQuotes) {
+      if (current.trim()) parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts
+    .map((segment) => {
+      const eqIndex = segment.indexOf("=");
+      if (eqIndex < 0) return null;
+      return {
+        key: segment.slice(0, eqIndex).trim().toUpperCase(),
+        value: segment.slice(eqIndex + 1).trim(),
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildStreamInfLine = (line, rendition, forcedFpsValue) => {
+  const attrs = parseStreamInfAttributes(line);
+  const reservedKeys = new Set(["BANDWIDTH", "RESOLUTION", "FRAME-RATE", "CODECS"]);
+  const attrMap = new Map(attrs.map((attr) => [attr.key, attr.value]));
+  const remainder = attrs.filter((attr) => !reservedKeys.has(attr.key));
+  const bandwidth =
+    rendition.bandwidth ||
+    parseBitrateToNumber(rendition.bitrate) ||
+    parseBitrateToNumber(attrMap.get("BANDWIDTH"));
+  const resolution =
+    rendition.width && rendition.height
+      ? `${rendition.width}x${rendition.height}`
+      : attrMap.get("RESOLUTION");
+  const baseAttrs = [];
+  if (bandwidth) baseAttrs.push(`BANDWIDTH=${bandwidth}`);
+  if (resolution) baseAttrs.push(`RESOLUTION=${resolution}`);
+  baseAttrs.push('CODECS="avc1.42e01e,mp4a.40.2"');
+  if (forcedFpsValue) baseAttrs.push(`FRAME-RATE=${forcedFpsValue}`);
+  remainder.forEach((attr) => {
+    baseAttrs.push(`${attr.key}=${attr.value}`);
+  });
+  return `#EXT-X-STREAM-INF:${baseAttrs.join(",")}`;
+};
+
+const ensureHlsMasterTags = (masterPath, renditions) => {
+  if (!fs.existsSync(masterPath)) return;
+  const parsedFps = parseFloat(HLS_FORCE_FPS);
+  const forcedFpsValue = Number.isFinite(parsedFps) && parsedFps > 0 ? parsedFps : null;
+  const raw = fs.readFileSync(masterPath, "utf8");
+  if (!raw) return;
+  const lines = raw.split(/\r?\n/);
+  const entries = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].startsWith("#EXT-X-STREAM-INF")) {
+      entries.push({ index: i, uriIndex: i + 1 });
+    }
+  }
+  if (!entries.length) return;
+  const updated = [...lines];
+  entries.forEach((entry, idx) => {
+    const rendition = renditions[idx];
+    if (!rendition) return;
+    updated[entry.index] = buildStreamInfLine(updated[entry.index], rendition, forcedFpsValue);
+  });
+  if (entries.length < renditions.length) {
+    for (let i = entries.length; i < renditions.length; i += 1) {
+      const rendition = renditions[i];
+      updated.push(buildStreamInfLine("#EXT-X-STREAM-INF:", rendition, forcedFpsValue));
+      updated.push(`${i}/index.m3u8`);
+    }
+  }
+  const merged = updated.join("\n");
+  if (merged !== raw) {
+    fs.writeFileSync(masterPath, merged);
+  }
+};
+
+const buildHlsMasterPlaylist = (renditions, variantUris, forcedFpsValue) => {
+  const lines = ["#EXTM3U", "#EXT-X-VERSION:3"];
+  renditions.forEach((rendition, index) => {
+    const attrs = [];
+    if (rendition.bandwidth) attrs.push(`BANDWIDTH=${rendition.bandwidth}`);
+    if (rendition.width && rendition.height) {
+      attrs.push(`RESOLUTION=${rendition.width}x${rendition.height}`);
+    }
+    attrs.push('CODECS="avc1.42e01e,mp4a.40.2"');
+    if (forcedFpsValue) attrs.push(`FRAME-RATE=${forcedFpsValue}`);
+    lines.push(`#EXT-X-STREAM-INF:${attrs.join(",")}`);
+    lines.push(variantUris[index] || `${index}/index.m3u8`);
+  });
+  return `${lines.join("\n")}\n`;
+};
+
+const updateLatestHlsMaster = (baseRel, renditions) => {
+  const parsedFps = parseFloat(HLS_FORCE_FPS);
+  const forcedFpsValue = Number.isFinite(parsedFps) && parsedFps > 0 ? parsedFps : null;
+  const variantUris = renditions.map((_rendition, index) => `../${baseRel}/${index}/index.m3u8`);
+  const playlist = buildHlsMasterPlaylist(renditions, variantUris, forcedFpsValue);
+  try {
+    fs.writeFileSync(path.join(hlsLatestDir, "master.m3u8"), playlist);
+  } catch (error) {
+    console.warn("[hls] falha ao atualizar master latest:", error.message);
+  }
+};
+
+const generateHlsVariants = async ({
+  inputPath,
+  target,
+  mediaId,
+  orientation,
+  sourceHeight,
+  hasAudio,
+  updateLatest = true,
+}) => {
+  if (!ENABLE_HLS || !ffmpegAvailable) return { masterUrl: "" };
+  const safeTarget = normalizeTarget(target);
+  const baseDir = path.join(hlsDir, safeTarget, mediaId, orientation);
+  const masterPath = path.join(baseDir, "master.m3u8");
+  ensureDir(baseDir);
+
+  const renditions = buildHlsRenditions(sourceHeight, orientation);
+  if (!renditions.length) {
+    console.warn(`[hls] nenhuma rendition válida para ${mediaId} (${orientation}).`);
+    return { masterUrl: "" };
+  }
+
+  const baseRel = path
+    .relative(mediaDir, baseDir)
+    .replace(/\\/g, "/")
+    .replace(/^\//, "");
+
+  if (!FORCE_REGEN_HLS && fs.existsSync(masterPath)) {
+    try {
+      if (fs.statSync(masterPath).size > 0) {
+        ensureHlsMasterTags(masterPath, renditions);
+        if (updateLatest) {
+          updateLatestHlsMaster(baseRel, renditions);
+        }
+        return { masterUrl: `/media/${baseRel}/master.m3u8` };
+      }
+    } catch (_error) {}
+  }
+
+  renditions.forEach((_rendition, index) => {
+    ensureDir(path.join(baseDir, String(index)));
+  });
+
+  const splitLabels = renditions.map((_rendition, index) => `[v${index}]`).join("");
+  const filteredLabels = renditions
+    .map(
+      (rendition, index) =>
+        `[v${index}]scale=-2:${rendition.height}[v${index}out]`
+    )
+    .join(";");
+  const filterComplex = `[0:v]split=${renditions.length}${splitLabels};${filteredLabels}`;
+
+  const args = ["-y", "-i", inputPath, "-filter_complex", filterComplex];
+  renditions.forEach((_rendition, index) => {
+    args.push("-map", `[v${index}out]`);
+    if (hasAudio) args.push("-map", "0:a?");
+  });
+  renditions.forEach((rendition, index) => {
+    args.push(
+      `-c:v:${index}`,
+      "libx264",
+      `-crf:v:${index}`,
+      String(FFMPEG_CRF),
+      `-b:v:${index}`,
+      rendition.bitrate,
+      `-g:v:${index}`,
+      String(HLS_GOP),
+      `-keyint_min:v:${index}`,
+      String(HLS_GOP),
+      `-sc_threshold:v:${index}`,
+      "0"
+    );
+  });
+  args.push("-pix_fmt", "yuv420p");
+  const parsedFps = parseFloat(HLS_FORCE_FPS);
+  if (HLS_FORCE_FPS && Number.isFinite(parsedFps) && parsedFps > 0) {
+    args.push("-r", String(parsedFps));
+  }
+  args.push("-force_key_frames", `expr:gte(t,n_forced*${HLS_SEGMENT_TIME})`);
+  if (hasAudio) {
+    args.push("-c:a", "aac", "-b:a", HLS_AUDIO_BITRATE);
+  } else {
+    args.push("-an");
+  }
+
+  const varStreamMap = renditions
+    .map((_rendition, index) =>
+      hasAudio ? `v:${index},a:${index}` : `v:${index}`
+    )
+    .join(" ");
+  args.push(
+    "-f",
+    "hls",
+    "-hls_time",
+    String(HLS_SEGMENT_TIME),
+    "-hls_playlist_type",
+    "vod",
+    "-hls_flags",
+    "independent_segments",
+    "-hls_segment_filename",
+    path.join(baseDir, "%v", "segment_%03d.ts"),
+    "-master_pl_name",
+    "master.m3u8",
+    "-var_stream_map",
+    varStreamMap,
+    path.join(baseDir, "%v", "index.m3u8")
+  );
+
+  console.log(`[hls] gerando HLS (${orientation}) para ${mediaId}...`);
+  await new Promise((resolve, reject) => {
     execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
       if (error) {
         const message =
@@ -681,9 +1048,99 @@ const generateHlsVariants = (inputPath, target, mediaId, variantLabel, maxHeight
             : error.message;
         return reject(new Error(`Falha ao gerar HLS: ${message}`));
       }
-      resolve({ baseDir, masterPath: path.join(baseDir, "master.m3u8") });
+      return resolve();
     });
   });
+
+  ensureHlsMasterTags(masterPath, renditions);
+  if (updateLatest) {
+    updateLatestHlsMaster(baseRel, renditions);
+  }
+
+  return { masterUrl: `/media/${baseRel}/master.m3u8` };
+};
+
+const transcodeVideoVariant = (inputPath, outputPath, filter, height) =>
+  new Promise((resolve, reject) => {
+    try {
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+        return resolve();
+      }
+    } catch (_error) {}
+    const args = [
+      "-y",
+      "-i",
+      inputPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "0:a?",
+      "-vf",
+      filter,
+      "-c:v",
+      "libx264",
+      "-preset",
+      VIDEO_PRESET,
+      "-crf",
+      String(FFMPEG_CRF),
+      "-g",
+      String(HLS_GOP),
+      "-keyint_min",
+      String(HLS_GOP),
+      "-sc_threshold",
+      "0",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      "-metadata:s:v",
+      "rotate=0",
+      outputPath,
+    ];
+    execFile(ffmpegPath, args, { windowsHide: true }, (error, _stdout, stderr) => {
+      if (error) {
+        const message =
+          stderr && stderr.trim()
+            ? `ffmpeg stderr: ${stderr
+                .trim()
+                .split("\n")
+                .slice(-3)
+                .join(" | ")}`
+            : error.message;
+        return reject(new Error(`Falha ao gerar variante de vídeo: ${message}`));
+      }
+      resolve();
+    });
+  });
+
+const generateMp4Variants = async (inputPath, baseName, orientation) => {
+  if (!ffmpegAvailable) return [];
+  const list = [];
+  for (const height of VIDEO_VARIANTS) {
+    const output = path.join(
+      videoVariantsDir,
+      `${baseName}__${orientation}__h${height}.mp4`
+    );
+    const filter =
+      orientation === "portrait"
+        ? `transpose=1,scale=-2:${height}`
+        : `scale=-2:${height}`;
+    try {
+      await transcodeVideoVariant(inputPath, output, filter, height);
+      const rel = resolveRelativeMediaPath(output);
+      if (rel) {
+        list.push({ height, bitrate: getVideoBitrateForHeight(height), path: rel });
+      }
+    } catch (error) {
+      console.warn(`[video] falha ao gerar variante ${orientation} ${height}p:`, error.message);
+    }
+  }
+  return list;
+};
 
 const processImageVariants = async (
   inputPath,
@@ -695,8 +1152,8 @@ const processImageVariants = async (
   if (!sharp) return null;
   const suffix = orientation ? `__${orientation}` : "";
   const normalizedPath = path.join(imagesDir, `${baseName}${suffix}.webp`);
-  const baseImage = sharp(inputPath).rotate();
-  const image = rotateDegrees ? baseImage.rotate(rotateDegrees) : baseImage;
+  const baseImage = rotateDegrees ? sharp(inputPath).rotate(rotateDegrees) : sharp(inputPath).rotate();
+  const image = baseImage;
   const metadata = await image.metadata();
   await image.webp({ quality: 85 }).toFile(normalizedPath);
 
@@ -708,9 +1165,13 @@ const processImageVariants = async (
       imageVariantsDir,
       `${baseName}${suffix}__w${width}.webp`
     );
-    const variantBase = sharp(inputPath).rotate();
-    const variant = rotateDegrees ? variantBase.rotate(rotateDegrees) : variantBase;
-    await variant.resize({ width }).webp({ quality: 80 }).toFile(output);
+    const variantBase = rotateDegrees ? sharp(inputPath).rotate(rotateDegrees) : sharp(inputPath).rotate();
+    const variant = variantBase;
+    if (rotateDegrees) {
+      await variant.resize({ height: width }).webp({ quality: 80 }).toFile(output);
+    } else {
+      await variant.resize({ width }).webp({ quality: 80 }).toFile(output);
+    }
     variants.push({
       width,
       path: resolveRelativeMediaPath(output),
@@ -730,23 +1191,38 @@ const chooseBestVariant = (variants = []) => {
   const sorted = [...variants].sort((a, b) => (b.width || 0) - (a.width || 0));
   return sorted[0] || null;
 };
+const chooseBestVariantExisting = (variants = []) => {
+  const filtered = (variants || []).filter((variant) => {
+    const absPath = resolveMediaPath(variant?.path);
+    return absPath && fs.existsSync(absPath);
+  });
+  return chooseBestVariant(filtered);
+};
 
-const processVideoUpload = async (filePath, fileName, target) => {
+const buildVideoFallback = (filePath, fileName, reason, mediaIdOverride) => ({
+  landscapePath: filePath,
+  portraitPath: null,
+  width: null,
+  height: null,
+  duration: null,
+  mediaId: mediaIdOverride || `${slugifyId(path.parse(fileName).name)}-${Date.now()}`,
+  posterLandscape: "",
+  posterPortrait: "",
+  variantsVideoLandscape: [],
+  variantsVideoPortrait: [],
+  normalized: false,
+  reason,
+});
+
+const processVideoUploadHeavy = async (filePath, fileName, target, mediaId) => {
   if (!ffprobeAvailable || !ffmpegAvailable) {
-    return {
-      landscapePath: filePath,
-      portraitPath: null,
-      width: null,
-      height: null,
-      duration: null,
-      hlsLandscape: "",
-      hlsPortrait: "",
-      mediaId: `${slugifyId(path.parse(fileName).name)}-${Date.now()}`,
-      posterLandscape: "",
-      posterPortrait: "",
-      normalized: false,
-      reason: !ffprobeAvailable ? "ffprobe_missing" : "ffmpeg_missing",
-    };
+    console.warn("[video] ffmpeg unavailable, using original");
+    return buildVideoFallback(
+      filePath,
+      fileName,
+      !ffprobeAvailable ? "ffprobe_missing" : "ffmpeg_missing",
+      mediaId
+    );
   }
 
   let probe;
@@ -758,12 +1234,15 @@ const processVideoUpload = async (filePath, fileName, target) => {
     err.errorCode = "INVALID_VIDEO";
     throw err;
   }
+  if (!probe) {
+    return buildVideoFallback(filePath, fileName, "ffprobe_missing", mediaId);
+  }
   const meta = extractVideoMetadata(probe);
   const rotation = normalizeRotation(meta.rotation || 0);
   const baseName = path.parse(fileName).name;
   const landscapePath = path.join(normalizedDir, `${baseName}__landscape.mp4`);
   const portraitPath = path.join(normalizedDir, `${baseName}__portrait.mp4`);
-  const mediaId = `${slugifyId(baseName)}-${Date.now()}`;
+  const resolvedMediaId = mediaId || `${slugifyId(baseName)}-${Date.now()}`;
 
   if (!fs.existsSync(landscapePath)) {
     if ([90, 180, 270].includes(rotation)) {
@@ -783,41 +1262,8 @@ const processVideoUpload = async (filePath, fileName, target) => {
   const height = landscapeMeta.height || meta.height;
   const duration = landscapeMeta.duration || meta.duration;
 
-  let hlsLandscape = "";
-  let hlsPortrait = "";
-  if (ENABLE_HLS) {
-    try {
-      const hlsResultLandscape = await generateHlsVariants(
-        landscapePath,
-        target,
-        mediaId,
-        "landscape",
-        height || null,
-        !!landscapeMeta.hasAudio
-      );
-      if (hlsResultLandscape?.masterPath) {
-        hlsLandscape = resolveRelativeMediaPath(hlsResultLandscape.masterPath) || "";
-      }
-      if (ENABLE_PORTRAIT_VARIANTS && fs.existsSync(portraitPath)) {
-        const hlsResultPortrait = await generateHlsVariants(
-          portraitPath,
-          target,
-          mediaId,
-          "portrait",
-          width || null,
-          !!landscapeMeta.hasAudio
-        );
-        if (hlsResultPortrait?.masterPath) {
-          hlsPortrait = resolveRelativeMediaPath(hlsResultPortrait.masterPath) || "";
-        }
-      }
-    } catch (error) {
-      logWeatherWarnOnce("hls-fail", `[hls] falha ao gerar HLS: ${error.message || "erro"}`);
-    }
-  }
-
-  const posterLandscape = path.join(posterDir, `${mediaId}_landscape.webp`);
-  const posterPortrait = path.join(posterDir, `${mediaId}_portrait.webp`);
+  const posterLandscape = path.join(posterDir, `${resolvedMediaId}_landscape.webp`);
+  const posterPortrait = path.join(posterDir, `${resolvedMediaId}_portrait.webp`);
 
   const capturePoster = (input, output, rotate) =>
     new Promise((resolve, reject) => {
@@ -860,33 +1306,116 @@ const processVideoUpload = async (filePath, fileName, target) => {
     logWeatherWarnOnce("poster-fail", `[poster] ${error.message || "erro"}`);
   }
 
+  let variantsVideoLandscape = [];
+  let variantsVideoPortrait = [];
+  if (ffmpegAvailable) {
+    variantsVideoLandscape = await generateMp4Variants(landscapePath, resolvedMediaId, "landscape");
+    if (ENABLE_PORTRAIT_VARIANTS) {
+      variantsVideoPortrait = await generateMp4Variants(landscapePath, resolvedMediaId, "portrait");
+    }
+  }
+
+  let hlsMasterUrlLandscape = "";
+  let hlsMasterUrlPortrait = "";
+  if (ENABLE_HLS && ffmpegAvailable) {
+    try {
+      const landscapeHls = await generateHlsVariants({
+        inputPath: landscapePath,
+        target,
+        mediaId: resolvedMediaId,
+        orientation: "landscape",
+        sourceHeight: height,
+        hasAudio: meta.hasAudio,
+        updateLatest: true,
+      });
+      hlsMasterUrlLandscape = landscapeHls.masterUrl || "";
+    } catch (error) {
+      console.warn(`[hls] falha ao gerar landscape: ${error.message}`);
+    }
+    if (ENABLE_PORTRAIT_VARIANTS && portraitPath && fs.existsSync(portraitPath)) {
+      try {
+        const portraitHls = await generateHlsVariants({
+          inputPath: portraitPath,
+          target,
+          mediaId: resolvedMediaId,
+          orientation: "portrait",
+          sourceHeight: width,
+          hasAudio: meta.hasAudio,
+          updateLatest: false,
+        });
+        hlsMasterUrlPortrait = portraitHls.masterUrl || "";
+      } catch (error) {
+        console.warn(`[hls] falha ao gerar portrait: ${error.message}`);
+      }
+    }
+  }
+
   return {
     landscapePath,
     portraitPath: ENABLE_PORTRAIT_VARIANTS ? portraitPath : null,
     width,
     height,
     duration,
-    hlsLandscape,
-    hlsPortrait,
-    mediaId,
+    mediaId: resolvedMediaId,
     posterLandscape: resolveRelativeMediaPath(posterLandscape),
     posterPortrait:
       ENABLE_PORTRAIT_VARIANTS && fs.existsSync(posterPortrait)
         ? resolveRelativeMediaPath(posterPortrait)
         : "",
+    variantsVideoLandscape,
+    variantsVideoPortrait,
+    hlsMasterUrlLandscape,
+    hlsMasterUrlPortrait,
     normalized: true,
     reason: "",
   };
 };
 
+const transcodeQueue = [];
+let transcodeRunning = 0;
+
+const runNextTranscode = () => {
+  if (transcodeRunning >= MAX_TRANSCODE_JOBS) return;
+  const next = transcodeQueue.shift();
+  if (!next) return;
+  transcodeRunning += 1;
+  next
+    .task()
+    .then(next.resolve)
+    .catch(next.reject)
+    .finally(() => {
+      transcodeRunning -= 1;
+      runNextTranscode();
+    });
+};
+
+const enqueueTranscode = (task) =>
+  new Promise((resolve, reject) => {
+    transcodeQueue.push({ task, resolve, reject });
+    runNextTranscode();
+  });
+
 const processImageUpload = async (filePath, fileName) => {
   const baseName = path.parse(fileName).name;
   if (!sharp) {
+    const ext = path.extname(fileName) || ".webp";
+    const portraitOutput = path.join(imagesDir, `${baseName}__portrait${ext}`);
+    if (ENABLE_PORTRAIT_VARIANTS) {
+      try {
+        fs.copyFileSync(filePath, portraitOutput);
+      } catch (_error) {}
+    }
     return {
       landscape: { outputPath: filePath, width: null, height: null, variants: [] },
       portrait: ENABLE_PORTRAIT_VARIANTS
-        ? { outputPath: filePath, width: null, height: null, variants: [] }
+        ? {
+            outputPath: fs.existsSync(portraitOutput) ? portraitOutput : filePath,
+            width: null,
+            height: null,
+            variants: [],
+          }
         : null,
+      portraitFallback: ENABLE_PORTRAIT_VARIANTS,
     };
   }
   const landscape = await processImageVariants(
@@ -896,15 +1425,111 @@ const processImageUpload = async (filePath, fileName) => {
     0,
     IMAGE_VARIANTS
   );
-  const portrait = ENABLE_PORTRAIT_VARIANTS
-    ? await processImageVariants(
-        filePath,
+  let portrait = null;
+  let portraitFallback = false;
+  if (ENABLE_PORTRAIT_VARIANTS) {
+    try {
+      portrait = await processImageVariants(
+        landscape?.normalizedPath || filePath,
         baseName,
         "portrait",
         90,
         IMAGE_VARIANTS_PORTRAIT
-      )
-    : null;
+      );
+    } catch (error) {
+      console.warn("Falha ao gerar portrait com sharp, aplicando fallback:", error.message);
+      portraitFallback = true;
+    }
+    if (portrait?.normalizedPath) {
+      try {
+        const portraitMeta = await sharp(portrait.normalizedPath).metadata();
+        if (portraitMeta.width && portraitMeta.height && portraitMeta.width >= portraitMeta.height) {
+          portrait = await processImageVariants(
+            landscape?.normalizedPath || filePath,
+            baseName,
+            "portrait",
+            90,
+            IMAGE_VARIANTS_PORTRAIT
+          );
+        }
+      } catch (_error) {}
+    }
+    if (portrait?.variants?.length) {
+      const bestPortrait = chooseBestVariantExisting(portrait.variants);
+      if (bestPortrait?.path) {
+        try {
+          const absVariant = resolveMediaPath(bestPortrait.path);
+          if (absVariant) {
+            const variantMeta = await sharp(absVariant).metadata();
+            if (variantMeta.width && variantMeta.height && variantMeta.width >= variantMeta.height) {
+              const width = bestPortrait.width || null;
+              if (width) {
+                await sharp(landscape?.normalizedPath || filePath)
+                  .rotate(90)
+                  .resize({ width })
+                  .webp({ quality: 80 })
+                  .toFile(absVariant);
+              }
+            }
+          }
+        } catch (_error) {}
+      }
+    }
+    if ((process.env.DEBUG_IMAGE_PROCESS || "").toLowerCase() === "true") {
+      try {
+        const landMeta = landscape?.normalizedPath
+          ? await sharp(landscape.normalizedPath).metadata()
+          : null;
+        const portMeta = portrait?.normalizedPath
+          ? await sharp(portrait.normalizedPath).metadata()
+          : null;
+        const bestPortrait = chooseBestVariantExisting(portrait?.variants || []);
+        const bestPortraitMeta = bestPortrait?.path
+          ? await sharp(resolveMediaPath(bestPortrait.path)).metadata()
+          : null;
+        console.log("[image] landscape normalized:", landscape?.normalizedPath, landMeta);
+        console.log("[image] portrait normalized:", portrait?.normalizedPath, portMeta);
+        console.log("[image] portrait variant:", bestPortrait?.path, bestPortraitMeta);
+      } catch (_error) {}
+    }
+    if (!portrait) {
+      portraitFallback = true;
+      portrait = {
+        normalizedPath: landscape?.normalizedPath || filePath,
+        width: landscape?.width || null,
+        height: landscape?.height || null,
+        variants: landscape?.variants || [],
+      };
+    }
+    if (!portrait?.variants?.length && landscape?.variants?.length) {
+      portraitFallback = true;
+      const copied = [];
+      landscape.variants.forEach((variant) => {
+        const absSource = resolveMediaPath(variant?.path);
+        if (!absSource || !fs.existsSync(absSource)) return;
+        const name = path.basename(absSource);
+        let portraitName = name.includes("__landscape__")
+          ? name.replace("__landscape__", "__portrait__")
+          : name.replace(/(__w\d+)/, "__portrait__$1");
+        if (portraitName === name) {
+          portraitName = portraitName.replace(/(\.[^.]+)$/, "__portrait$1");
+        }
+        const absDest = path.join(imageVariantsDir, portraitName);
+        try {
+          fs.copyFileSync(absSource, absDest);
+          copied.push({ width: variant.width || null, path: resolveRelativeMediaPath(absDest) });
+        } catch (_error) {}
+      });
+      portrait.variants = copied.length ? copied : portrait.variants || [];
+    }
+    if (portrait?.normalizedPath && landscape?.normalizedPath && portrait.normalizedPath === landscape.normalizedPath) {
+      const portraitPath = path.join(imagesDir, `${baseName}__portrait.webp`);
+      try {
+        fs.copyFileSync(landscape.normalizedPath, portraitPath);
+        portrait.normalizedPath = portraitPath;
+      } catch (_error) {}
+    }
+  }
   return {
     landscape: {
       outputPath: landscape?.normalizedPath || filePath,
@@ -920,6 +1545,7 @@ const processImageUpload = async (filePath, fileName) => {
           variants: portrait?.variants || [],
         }
       : null,
+    portraitFallback,
   };
 };
 
@@ -956,6 +1582,8 @@ const buildCatalogItem = (item) => {
   if (!item) return null;
   const id = buildItemId(item);
   const mp4Url = item.path || "";
+  const hlsMasterUrl =
+    item.hlsMasterUrl || item.hlsMasterUrlLandscape || item.hlsMasterUrlPortrait || "";
   const meta = {
     id,
     type: item.mime && item.mime.startsWith("video/") ? "video" : "image",
@@ -963,8 +1591,8 @@ const buildCatalogItem = (item) => {
     mp4Url,
     mp4UrlLandscape: item.mp4UrlLandscape || mp4Url,
     mp4UrlPortrait: item.mp4UrlPortrait || "",
-    hlsMasterUrl: item.hlsMasterUrl || "",
-    hlsMasterUrlLandscape: item.hlsMasterUrlLandscape || item.hlsMasterUrl || "",
+    hlsMasterUrl,
+    hlsMasterUrlLandscape: item.hlsMasterUrlLandscape || "",
     hlsMasterUrlPortrait: item.hlsMasterUrlPortrait || "",
     posterUrl: item.posterUrl || item.posterUrlLandscape || "",
     posterUrlLandscape: item.posterUrlLandscape || "",
@@ -1007,6 +1635,7 @@ const writeCatalog = () => {
   } catch (error) {
     console.error("Erro ao gravar catalog.json:", error.message);
   }
+  bumpManifestVersion();
   return catalog;
 };
 
@@ -1026,23 +1655,18 @@ const handleMediaRequest = (req, res) => {
 };
 
 const storageSingle = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, mediaDir),
+  destination: (_req, _file, cb) => cb(null, uploadTmpDir),
   filename: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const isVideo = ext === ".mp4";
-    const targetSegment = targetSuffix(_req.body?.target);
-    const baseName = isVideo ? `latest${targetSegment}` : `latest-image${targetSegment}`;
-    cb(null, `${baseName}${ext}`);
+    cb(null, `${randomUUID()}${ext}`);
   },
 });
 
 const storageCarousel = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, mediaDir),
+  destination: (_req, _file, cb) => cb(null, uploadTmpDir),
   filename: (_req, file, cb) => {
     const ext = (path.extname(file.originalname) || "").toLowerCase();
-    const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const targetSegment = targetSuffix(_req.body?.target);
-    cb(null, `carousel${targetSegment}-${unique}${ext}`);
+    cb(null, `${randomUUID()}${ext}`);
   },
 });
 
@@ -1092,11 +1716,33 @@ const uploadCarousel = multer({
   },
 });
 
+const buildFinalUploadName = (originalName, target, kind) => {
+  const ext = (path.extname(originalName) || "").toLowerCase();
+  const safeName = safeBasename(path.parse(originalName || "").name);
+  const targetSegment = targetSuffix(target);
+  const prefix = kind === "video" ? "video" : kind === "carousel" ? "carousel" : "image";
+  return `${prefix}${targetSegment}-${safeName}-${randomUUID()}${ext}`;
+};
+
+const moveUploadedFile = (tmpPath, finalName) => {
+  const finalPath = path.join(mediaDir, finalName);
+  try {
+    fs.renameSync(tmpPath, finalPath);
+  } catch (error) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_unlinkError) {}
+    throw error;
+  }
+  return finalPath;
+};
+
 const uploadLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
   message: { ok: false, error: "RATE_LIMITED", message: "Muitas requisições. Tente mais tarde." },
 });
 
@@ -1105,6 +1751,7 @@ const extrasLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
   message: { ok: false, error: "RATE_LIMITED", message: "Muitas requisições. Tente mais tarde." },
 });
 
@@ -1113,20 +1760,32 @@ const allowedCorsOrigins = rawCorsOrigins
   .split(/[;,]/)
   .map((origin) => origin.trim())
   .filter(Boolean);
-const allowAllCors = process.env.NODE_ENV === "development" && allowedCorsOrigins.length === 0;
+const isProduction = process.env.NODE_ENV === "production";
 const isLocalhostOrigin = (origin) =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin || "");
-const corsOptions = {
+const buildCorsOptions = ({ allowLocalhost }) => ({
   origin: (origin, callback) => {
-    if (allowAllCors || rawCorsOrigins === "*") return callback(null, true);
     if (!origin) return callback(null, true);
-    if (isLocalhostOrigin(origin)) return callback(null, true);
+    if (rawCorsOrigins === "*") return callback(null, true);
+    if (!allowedCorsOrigins.length) {
+      if (isProduction) return callback(new Error("CORS bloqueado"));
+      if (allowLocalhost && isLocalhostOrigin(origin)) return callback(null, true);
+      return callback(null, true);
+    }
+    if (allowLocalhost && !isProduction && isLocalhostOrigin(origin)) {
+      return callback(null, true);
+    }
     if (allowedCorsOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("CORS bloqueado"));
   },
-};
+});
+const apiCors = cors(buildCorsOptions({ allowLocalhost: true }));
+const restrictedCors = cors(buildCorsOptions({ allowLocalhost: false }));
 
-app.set("trust proxy", process.env.TRUST_PROXY || "loopback");
+const trustProxyRaw = (process.env.TRUST_PROXY || "").trim();
+const trustProxyValue =
+  trustProxyRaw === "" ? "loopback" : trustProxyRaw === "true" ? true : trustProxyRaw;
+app.set("trust proxy", trustProxyValue);
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -1142,66 +1801,147 @@ app.use((req, res, next) => {
   });
   next();
 });
-app.use(cors(corsOptions));
-app.use(compression());
-app.use(express.json());
-app.get("/media/latest/master.m3u8", (req, res) => {
-  const config = readMediaConfig();
-  const primary = config?.items?.[0];
-  const hlsMasterUrl =
-    primary?.hlsMasterUrlLandscape || primary?.hlsMasterUrl || primary?.hlsMasterUrlPortrait;
-  let masterPath = null;
-  if (hlsMasterUrl) {
-    masterPath = resolveMediaPath(hlsMasterUrl);
+app.use((req, res, next) => {
+  if (req.httpVersionMajor < 2) {
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("Keep-Alive", `timeout=${KEEP_ALIVE_TIMEOUT_SECONDS}`);
   }
-  if (!masterPath || !fs.existsSync(masterPath)) {
-    const fallback = path.join(hlsLatestDir, "master.m3u8");
-    if (fs.existsSync(fallback)) masterPath = fallback;
+  const forwardedProto = `${req.headers["x-forwarded-proto"] || ""}`.toLowerCase();
+  if (forwardedProto.includes("https")) {
+    res.setHeader("Alt-Svc", 'h2=":443"; ma=86400');
   }
-  if (!masterPath || !fs.existsSync(masterPath)) return res.sendStatus(404);
-  return sendFileWithRange(req, res, masterPath, MIME_BY_EXT[".m3u8"], {
-    cacheControl: "public, max-age=0, must-revalidate",
-  });
+  return next();
 });
-app.head("/media/latest/master.m3u8", (req, res) => {
-  const config = readMediaConfig();
-  const primary = config?.items?.[0];
-  const hlsMasterUrl =
-    primary?.hlsMasterUrlLandscape || primary?.hlsMasterUrl || primary?.hlsMasterUrlPortrait;
-  let masterPath = null;
-  if (hlsMasterUrl) {
-    masterPath = resolveMediaPath(hlsMasterUrl);
-  }
-  if (!masterPath || !fs.existsSync(masterPath)) {
-    const fallback = path.join(hlsLatestDir, "master.m3u8");
-    if (fs.existsSync(fallback)) masterPath = fallback;
-  }
-  if (!masterPath || !fs.existsSync(masterPath)) return res.sendStatus(404);
-  return sendFileWithRange(req, res, masterPath, MIME_BY_EXT[".m3u8"], {
-    cacheControl: "public, max-age=0, must-revalidate",
-  });
-});
-app.get("/media/hls/*", handleMediaRequest);
-app.head("/media/hls/*", handleMediaRequest);
+app.use(
+  compression({
+    threshold: 0,
+    level: 6,
+    brotli: { enabled: true },
+  })
+);
+app.use(express.json({ limit: "1mb" }));
+app.use("/media", cors({ origin: "*", methods: ["GET", "HEAD", "OPTIONS"] }));
+app.use("/api", apiCors);
 app.get("/media/*", handleMediaRequest);
 app.head("/media/*", handleMediaRequest);
-const PLAYER_TARGETS = ["acougue", "hortifrut", "padaria", "todas"];
+const normalizePlayerTarget = (value) => {
+  const base = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!base) return "";
+  const noAccents = base.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const dashed = noAccents.replace(/\s+/g, "-");
+  return dashed.replace(/[^a-z0-9-_]/g, "").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+};
+const getPlayerTargets = () => {
+  const targets = new Set(["todas"]);
+  try {
+    if (fs.existsSync(tvConfigFile)) {
+      const raw = fs.readFileSync(tvConfigFile, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => {
+          const rawTarget = item?.tipo || item?.nome || "";
+          const normalized = normalizePlayerTarget(rawTarget);
+          if (normalized) targets.add(normalized);
+        });
+      }
+    }
+  } catch (error) {
+    console.warn("Erro ao ler tv-config.json para targets do player:", error.message);
+  }
+  try {
+    if (fs.existsSync(mediaConfigFile)) {
+      const raw = fs.readFileSync(mediaConfigFile, "utf8");
+      const parsed = JSON.parse(raw);
+      const keys = parsed?.targets && typeof parsed.targets === "object" ? Object.keys(parsed.targets) : [];
+      keys.forEach((key) => {
+        const normalized = normalizePlayerTarget(key);
+        if (normalized) targets.add(normalized);
+      });
+    }
+  } catch (error) {
+    console.warn("Erro ao ler media-config.json para targets do player:", error.message);
+  }
+  return targets;
+};
 const playerTemplate = fs.existsSync(path.join(publicDir, "player.html"))
   ? fs.readFileSync(path.join(publicDir, "player.html"), "utf8")
   : "";
 const servePlayer = (target) => (req, res) => {
   if (!playerTemplate) return res.sendStatus(404);
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http: https: ws:;"
+  );
   const html = playerTemplate
     .replace("__PLAYER_TARGET__", target)
     .replace("__IMAGE_DURATION__", `${IMAGE_DURATION_MS}`);
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.send(html);
 };
-PLAYER_TARGETS.forEach((target) => {
-  app.get(`/${target}.html`, servePlayer(target));
+app.get("/:target.html", (req, res, next) => {
+  const target = normalizePlayerTarget(req.params.target);
+  if (!target) return next();
+  const allowed = getPlayerTargets();
+  if (!allowed.has(target)) return next();
+  return servePlayer(target)(req, res);
 });
-app.use(express.static(publicDir, { maxAge: 0 }));
-app.use(express.static(path.join(__dirname), { maxAge: 0 }));
+app.get("/.well-known/appspecific/com.chrome.devtools.json", (_req, res) => {
+  return res.status(204).end();
+});
+
+const htmlAllowlist = new Map([
+  ["/", "index.html"],
+  ["/dashboard", "dashboard.html"],
+  ["/dashboard.html", "dashboard.html"],
+  ["/promotions", "promotions.html"],
+  ["/promotions.html", "promotions.html"],
+  ["/captive", "captive.html"],
+  ["/captive.html", "captive.html"],
+  ["/previsao", "previsao.html"],
+  ["/previsao.html", "previsao.html"],
+  ["/placares", "placares.html"],
+  ["/placares.html", "placares.html"],
+  ["/cotacoes", "cotacoes.html"],
+  ["/cotacoes.html", "cotacoes.html"],
+]);
+
+const sendAllowedHtml = (fileName) => (_req, res) => {
+  const filePath = path.join(publicDir, fileName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("Not found");
+  }
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' http: https: ws:;"
+  );
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.sendFile(filePath);
+};
+
+htmlAllowlist.forEach((fileName, route) => {
+  app.get(route, sendAllowedHtml(fileName));
+});
+
+app.use((req, res, next) => {
+  if ((req.method === "GET" || req.method === "HEAD") && req.path.endsWith(".html")) {
+    if (!htmlAllowlist.has(req.path)) {
+      return res.status(404).send("Not found");
+    }
+  }
+  return next();
+});
+
+// Segurança: servir apenas assets públicos explícitos; não expor raiz do projeto.
+app.use(
+  express.static(publicDir, {
+    maxAge: 0,
+    setHeaders: (res) => {
+      if (!isProduction) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    },
+  })
+);
 
 const findLatestFile = () => {
   try {
@@ -1269,6 +2009,37 @@ let statsFlushTimer = null;
 let statsFlushRunning = false;
 
 const getStatsSnapshot = () => (Array.isArray(statsCache) ? [...statsCache] : []);
+const getTotalPlays = () =>
+  getStatsSnapshot().reduce((count, event) => count + (event?.type === "video_started" ? 1 : 0), 0);
+
+const captureCpuSample = () => {
+  const cpus = os.cpus() || [];
+  let idle = 0;
+  let total = 0;
+  cpus.forEach((cpu) => {
+    const times = cpu.times || {};
+    const cpuTotal =
+      (times.user || 0) +
+      (times.nice || 0) +
+      (times.sys || 0) +
+      (times.irq || 0) +
+      (times.idle || 0);
+    total += cpuTotal;
+    idle += times.idle || 0;
+  });
+  return { idle, total };
+};
+
+let lastCpuSample = captureCpuSample();
+const getCpuUsagePercent = () => {
+  const current = captureCpuSample();
+  const totalDiff = current.total - lastCpuSample.total;
+  const idleDiff = current.idle - lastCpuSample.idle;
+  lastCpuSample = current;
+  if (!totalDiff || totalDiff <= 0) return 0;
+  const usage = 100 * (1 - idleDiff / totalDiff);
+  return Math.max(0, Math.min(100, Number(usage.toFixed(2))));
+};
 
 const flushStatsToDisk = async () => {
   statsFlushTimer = null;
@@ -1339,11 +2110,29 @@ const buildMediaItemUrl = (item, fallbackUpdatedAt) => {
 };
 const enrichMediaItem = (item, fallbackUpdatedAt, fallbackTarget) => {
   const updatedAt = item.updatedAt || fallbackUpdatedAt || Date.now();
-  return {
+  const baseUrl = item.url || buildMediaItemUrl(item, updatedAt);
+  const enriched = {
     ...item,
     target: normalizeTarget(item.target || fallbackTarget),
     updatedAt,
-    url: item.url || buildMediaItemUrl(item, updatedAt),
+    url: baseUrl,
+  };
+  const isImage =
+    (enriched?.mime && enriched.mime.startsWith("image/")) ||
+    (!enriched?.mp4UrlLandscape &&
+      !enriched?.hlsMasterUrlLandscape &&
+      (enriched?.posterUrlLandscape || enriched?.variantsLandscape?.length));
+  if (!isImage) return enriched;
+  const portraitUrl = enriched.urlPortrait || enriched.posterUrlPortrait || "";
+  const variantsPortrait =
+    Array.isArray(enriched.variantsPortrait) && enriched.variantsPortrait.length
+      ? enriched.variantsPortrait
+      : enriched.variantsLandscape || [];
+  return {
+    ...enriched,
+    urlPortrait: portraitUrl || enriched.url,
+    variantsLandscape: enriched.variantsLandscape || [],
+    variantsPortrait,
   };
 };
 
@@ -1370,7 +2159,7 @@ const readMediaConfig = () => {
       targets,
       items: aggregate.items,
       mode: aggregate.mode,
-      updatedAt: parsed.updatedAt || Date.now(),
+      updatedAt: Math.max(parsed.updatedAt || 0, getFileMtimeMs(mediaConfigFile)),
     };
   } catch (error) {
     console.warn("Erro ao ler media-config.json:", error.message);
@@ -1378,28 +2167,34 @@ const readMediaConfig = () => {
   }
 };
 
-const buildMediaManifestPayload = (requestedTarget) => {
+const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
   const target = normalizeTarget(requestedTarget);
   const config = readMediaConfig();
-  const configUpdatedAt = config.updatedAt || Date.now();
-  let entry = null;
-
-  if (target === "todas" && Array.isArray(config.items) && config.items.length) {
-    entry = {
-      target,
-      mode: config.mode || "video",
-      items: config.items,
-      updatedAt: configUpdatedAt,
-    };
-  } else if (config.targets?.[target]?.items?.length) {
-    entry = {
-      ...config.targets[target],
-      target,
-      updatedAt: config.targets[target].updatedAt || configUpdatedAt,
-    };
+  const configUpdatedAt = Math.max(config.updatedAt || 0, getFileMtimeMs(mediaConfigFile));
+  const targetEntry = config.targets?.[target] || null;
+  const globalEntry = config.targets?.todas || null;
+  const shouldIncludeGlobal = target !== "todas" && includeGlobal;
+  const targetItems = targetEntry?.items || [];
+  const globalItems = globalEntry?.items || [];
+  let combined = [];
+  if (target === "todas") {
+    combined = globalItems;
+  } else if (shouldIncludeGlobal) {
+    combined = [...targetItems, ...globalItems];
+  } else {
+    combined = targetItems;
   }
+  const unique = [];
+  const seen = new Set();
+  let entry;
+  combined.forEach((item) => {
+    const id = item?.id || buildItemId(item);
+    if (seen.has(id)) return;
+    seen.add(id);
+    unique.push(item);
+  });
 
-  if (!entry || !entry.items?.length) {
+  if (!unique.length) {
     const latest = findLatestFile();
     if (!latest) return null;
     const stats = fs.statSync(latest.fullPath);
@@ -1418,6 +2213,18 @@ const buildMediaManifestPayload = (requestedTarget) => {
       items: [fallbackItem],
       updatedAt: stats.mtimeMs,
     };
+  } else {
+    entry = {
+      target,
+      mode: targetEntry?.mode || globalEntry?.mode || config.mode || "video",
+      items: unique,
+      updatedAt:
+        Math.max(
+          targetEntry?.updatedAt || 0,
+          globalEntry?.updatedAt || 0,
+          ...unique.map((item) => item?.updatedAt || 0)
+        ) || configUpdatedAt,
+    };
   }
 
   const updatedAt =
@@ -1426,24 +2233,32 @@ const buildMediaManifestPayload = (requestedTarget) => {
     configUpdatedAt;
   const items = entry.items.map((item) => enrichMediaItem(item, updatedAt, target));
   const primary = items[0] || null;
-  const etag = `W/"${target}:${updatedAt}:${items.length}"`;
-  const lastModified = new Date(updatedAt).toUTCString();
+  const manifestPayload = {
+    ok: true,
+    target,
+    mode: entry.mode || "video",
+    updatedAt,
+    items,
+    url: primary?.url,
+    path: primary?.path,
+    mime: primary?.mime,
+    size: primary?.size,
+    configUpdatedAt: entry.updatedAt || configUpdatedAt,
+    manifestVersion,
+  };
+  const serializedManifest = JSON.stringify(manifestPayload);
+  const etag = buildStrongEtag(
+    `manifest:${target}:${shouldIncludeGlobal ? "g" : "l"}`,
+    serializedManifest
+  );
+  const lastModified = new Date(
+    Math.max(updatedAt || 0, configUpdatedAt || 0, manifestVersion || 0)
+  ).toUTCString();
 
   return {
     etag,
     lastModified,
-    data: {
-      ok: true,
-      target,
-      mode: entry.mode || "video",
-      updatedAt,
-      items,
-      url: primary?.url,
-      path: primary?.path,
-      mime: primary?.mime,
-      size: primary?.size,
-      configUpdatedAt: entry.updatedAt || configUpdatedAt,
-    },
+    data: manifestPayload,
   };
 };
 
@@ -1479,6 +2294,18 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
   }
   writeCatalog();
   return nextConfig;
+};
+
+const updateMediaItemInConfig = (target, itemId, updater) => {
+  const normalizedTarget = normalizeTarget(target);
+  const config = readMediaConfig();
+  const entry = config.targets?.[normalizedTarget];
+  if (!entry || !Array.isArray(entry.items)) return null;
+  const updatedItems = entry.items.map((item) => {
+    if (item?.id !== itemId) return item;
+    return updater(item) || item;
+  });
+  return writeMediaConfig(normalizedTarget, entry.mode || "video", updatedItems);
 };
 
 const setWeatherTargetVisibility = (visible) => {
@@ -1534,18 +2361,24 @@ writeCatalog();
 
 const checkBinary = (label, binPath) =>
   new Promise((resolve) => {
-    if (binPath && binPath.includes("/") && fs.existsSync(binPath)) {
+    if (binPath && path.isAbsolute(binPath) && fs.existsSync(binPath)) {
       console.log(`[ffmpeg] ${label} ok em: ${binPath}`);
       return resolve(true);
     }
-    execFile("which", [binPath], { windowsHide: true }, (error, stdout) => {
+    execFile(binPath, ["-version"], { windowsHide: true }, (error, stdout) => {
       if (error) {
-        console.warn(`[ffmpeg] ${label} não encontrado; uploads de vídeo serão aceitos sem normalização.`);
+        if (error.code === "ENOENT") {
+          console.warn(
+            `[ffmpeg] ${label} não encontrado; uploads de vídeo serão aceitos sem normalização.`
+          );
+          return resolve(false);
+        }
+        console.warn(`[ffmpeg] ${label} indisponível: ${error.message}`);
         return resolve(false);
       }
       const found = (stdout || "").trim();
       if (found) {
-        console.log(`[ffmpeg] ${label} ok em: ${found}`);
+        console.log(`[ffmpeg] ${label} ok em: ${binPath}`);
         return resolve(true);
       }
       console.warn(`[ffmpeg] ${label} não encontrado; uploads de vídeo serão aceitos sem normalização.`);
@@ -1625,24 +2458,51 @@ const summarizeFile = (fileName, target = "todas") => {
 };
 
 const cleanupKeeping = (keepList) => {
-  const keepSet = new Set(keepList);
-  const files = fs.readdirSync(mediaDir);
-  for (const file of files) {
-    const filePath = path.join(mediaDir, file);
+  const keepSet = new Set((keepList || []).filter(Boolean));
+  const keepDirSet = new Set();
+  keepDirSet.add("hls");
+  keepDirSet.add("latest");
+
+  // Segurança: nunca tocar arquivos fora do mediaDir.
+  const toRel = (absPath) => {
+    const rel = path.relative(mediaDir, absPath);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    return rel.replace(/\\/g, "/");
+  };
+
+
+  const walk = (dir) => {
+    let entries = [];
     try {
-      const stats = fs.statSync(filePath);
-      if (stats.isDirectory()) continue;
-    } catch (statError) {
-      console.warn(`Não foi possível ler ${file} para limpeza:`, statError.message);
-      continue;
-    }
-    if (keepSet.has(file)) continue;
-    try {
-      fs.unlinkSync(filePath);
+      entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch (error) {
-      console.warn(`Não foi possível remover ${file}:`, error.message);
+      console.warn(`Não foi possível ler ${dir} para limpeza:`, error.message);
+      return;
     }
-  }
+    entries.forEach((entry) => {
+      const absPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absPath);
+        return;
+      }
+      if (!entry.isFile()) return;
+      const rel = toRel(absPath);
+      if (!rel) return;
+      const relNormalized = rel.replace(/\\/g, "/");
+      if (keepSet.has(relNormalized)) return;
+      for (const keepDir of keepDirSet) {
+        if (relNormalized.startsWith(`${keepDir}/`)) return;
+      }
+      try {
+        fs.unlinkSync(absPath);
+      } catch (error) {
+        console.warn(`Não foi possível remover ${relNormalized}:`, error.message);
+      }
+    });
+  };
+
+  // Limpeza centralizada e segura dentro de mediaDir.
+  walk(mediaDir);
 };
 
 const getRandom = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
@@ -1651,6 +2511,7 @@ const EXTRAS_CACHE = {
   commodities: { updatedAt: 0, data: null },
   scores: { updatedAt: 0, data: null },
 };
+const EXTRAS_STUB_ENABLED = (process.env.ENABLE_EXTRAS_STUB || "").toLowerCase() === "true";
 
 const buildForecast = () =>
   ["Hoje", "Amanhã", "Depois"].map((label) => ({
@@ -1928,7 +2789,7 @@ const scheduleWeatherMediaRefresh = () => {
 };
 
 // Feed de Roku: gera dinamicamente por tipo de TV (todas ou tipos definidos) com fallback para arquivo txt legado.
-app.get("/api/roku/tvs", (_req, res) => {
+app.get("/api/roku/tvs", restrictedCors, (_req, res) => {
   try {
     const tvs = readTvConfig();
     return res.json({ ok: true, tvs });
@@ -2671,22 +3532,31 @@ Não retornar jogos de datas diferentes de ${hoje}.
 
 app.use("/api/extras", extrasLimiter);
 app.get("/api/extras/weather", async (_req, res) => {
+  if (!EXTRAS_STUB_ENABLED) {
+    return res.status(503).json({ ok: false, message: "Indisponível" });
+  }
   const data = await touchCache("weather", refreshWeather);
   return res.json(data || { ok: false, message: "Sem dados climáticos." });
 });
 
 app.get("/api/extras/commodities", async (_req, res) => {
+  if (!EXTRAS_STUB_ENABLED) {
+    return res.status(503).json({ ok: false, message: "Indisponível" });
+  }
   const data = await touchCache("commodities", refreshCommodities);
   return res.json(data || { ok: false, message: "Sem dados de commodities." });
 });
 
 app.get("/api/extras/scores", async (_req, res) => {
+  if (!EXTRAS_STUB_ENABLED) {
+    return res.status(503).json({ ok: false, message: "Indisponível" });
+  }
   const data = await touchCache("scores", refreshScores);
   return res.json(data || { ok: false, message: "Sem dados de placares." });
 });
 
 // CRUD mínimo de TVs para Roku (protege com a mesma senha de upload).
-app.post("/api/roku/tvs", requireUploadAuth, (req, res) => {
+app.post("/api/roku/tvs", restrictedCors, requireUploadAuth, (req, res) => {
   const payload = normalizeTvPayload(req.body);
   if (!payload.id) return res.status(400).json({ ok: false, message: "ID da TV é obrigatório." });
   if (!payload.nome) return res.status(400).json({ ok: false, message: "Nome da TV é obrigatório." });
@@ -2706,7 +3576,7 @@ app.post("/api/roku/tvs", requireUploadAuth, (req, res) => {
   }
 });
 
-app.put("/api/roku/tvs/:id", requireUploadAuth, (req, res) => {
+app.put("/api/roku/tvs/:id", restrictedCors, requireUploadAuth, (req, res) => {
   const tvId = req.params.id;
   const tvs = readTvConfig();
   const index = tvs.findIndex((tv) => tv.id === tvId);
@@ -2728,39 +3598,76 @@ app.put("/api/roku/tvs/:id", requireUploadAuth, (req, res) => {
 });
 
 app.get("/api/info", (req, res) => {
-  const payload = buildMediaManifestPayload(req.query?.target || "todas");
+  const includeGlobal =
+    req.query?.includeGlobal != null ? req.query.includeGlobal === "1" : true;
+  const payload = buildMediaManifestPayload(req.query?.target || "todas", includeGlobal);
   if (!payload) {
     return res.status(404).json({ ok: false, message: "Nenhuma mídia disponível." });
   }
 
   const ifNoneMatch = req.headers["if-none-match"];
+  const ifModifiedSince = req.headers["if-modified-since"];
+  const sinceMs = ifModifiedSince ? Date.parse(ifModifiedSince) : NaN;
+  const lastModifiedMs = Date.parse(payload.lastModified);
   res.setHeader("ETag", payload.etag);
   res.setHeader("Last-Modified", payload.lastModified);
-  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+  res.setHeader("Cache-Control", "no-cache");
 
-  if (ifNoneMatch && ifNoneMatch.includes(payload.etag)) {
+  if (
+    (ifNoneMatch && ifNoneMatch.includes(payload.etag)) ||
+    (!Number.isNaN(sinceMs) &&
+      !Number.isNaN(lastModifiedMs) &&
+      Math.floor(sinceMs / 1000) >= Math.floor(lastModifiedMs / 1000))
+  ) {
     return res.status(304).end();
   }
 
   return res.json(payload.data);
 });
 
+app.get("/api/media/events", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+  res.write(`: connected\n\n`);
+  registerManifestClient(res);
+});
+
 app.get("/api/media/manifest", (req, res) => {
-  const payload = buildMediaManifestPayload(req.query?.target || "todas");
+  const includeGlobal =
+    req.query?.includeGlobal != null ? req.query.includeGlobal === "1" : true;
+  const payload = buildMediaManifestPayload(req.query?.target || "todas", includeGlobal);
   if (!payload) {
     return res.status(404).json({ ok: false, message: "Nenhuma mídia disponível." });
   }
 
   const ifNoneMatch = req.headers["if-none-match"];
+  const ifModifiedSince = req.headers["if-modified-since"];
+  const sinceMs = ifModifiedSince ? Date.parse(ifModifiedSince) : NaN;
+  const lastModifiedMs = Date.parse(payload.lastModified);
   res.setHeader("ETag", payload.etag);
   res.setHeader("Last-Modified", payload.lastModified);
-  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+  res.setHeader("Cache-Control", "no-cache");
 
-  if (ifNoneMatch && ifNoneMatch.includes(payload.etag)) {
+  if (
+    (ifNoneMatch && ifNoneMatch.includes(payload.etag)) ||
+    (!Number.isNaN(sinceMs) &&
+      !Number.isNaN(lastModifiedMs) &&
+      Math.floor(sinceMs / 1000) >= Math.floor(lastModifiedMs / 1000))
+  ) {
     return res.status(304).end();
   }
 
   return res.json(payload.data);
+});
+
+app.get("/api/ping.bin", (_req, res) => {
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Length", PING_BIN.length);
+  return res.end(PING_BIN);
 });
 
 app.get("/api/catalog", (req, res) => {
@@ -2791,82 +3698,177 @@ app.get("/api/catalog", (req, res) => {
   });
 });
 
-app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"), async (req, res) => {
+app.post(
+  "/api/upload",
+  restrictedCors,
+  uploadLimiter,
+  requireUploadAuth,
+  upload.single("file"),
+  async (req, res) => {
   if (!req.file) {
     return sendJsonError(res, 400, "FILE_MISSING", "Arquivo ausente no campo 'file'.");
   }
 
   const ext = (path.extname(req.file.originalname) || "").toLowerCase();
+  const mime = (req.file.mimetype || "").toLowerCase();
   const isVideo = ext === ".mp4";
+  const isImage = isImageExt(ext);
   const mode = isVideo ? "video" : "image";
   const target = normalizeTarget(req.body?.target);
 
+  const tmpPath = req.file.path;
+  if (!ALLOWED_EXT.includes(ext) || !ALLOWED_MIME_TYPES.has(mime)) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_error) {}
+    return sendJsonError(res, 415, "INVALID_MIME", "Tipo de arquivo não suportado.");
+  }
+  if (isVideo && mime !== "video/mp4") {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_error) {}
+    return sendJsonError(res, 415, "INVALID_MIME", "Apenas vídeo MP4 é aceito.");
+  }
+  if (!isVideo && !isImage) {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_error) {}
+    return sendJsonError(res, 415, "INVALID_MIME", "Apenas imagens (jpg/png/webp) são aceitas.");
+  }
+
+  const finalName = buildFinalUploadName(req.file.originalname, target, mode);
+  let finalPath;
+  try {
+    finalPath = moveUploadedFile(tmpPath, finalName);
+  } catch (error) {
+    console.error("Erro ao mover upload:", error.message);
+    return sendJsonError(res, 500, "UPLOAD_MOVE_ERROR", "Erro ao mover arquivo enviado.");
+  }
+
   let item = null;
   if (isVideo) {
-    let videoResult;
-    try {
-      videoResult = await processVideoUpload(req.file.path, req.file.filename, target);
-    } catch (error) {
-      if (error?.statusCode && error?.errorCode) {
-        return sendJsonError(res, error.statusCode, error.errorCode, error.message);
-      }
-      console.error("Erro ao normalizar vídeo enviado:", error.message);
-      return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Erro ao processar vídeo.");
-    } finally {
-      if (videoResult?.normalized) {
+    const mediaId = `${slugifyId(path.parse(finalName).name)}-${Date.now()}`;
+    const baseItem = summarizeFile(finalName, target);
+    item = {
+      ...baseItem,
+      id: mediaId,
+      urlLandscape: baseItem.path,
+      urlPortrait: baseItem.path,
+      mp4UrlLandscape: baseItem.path,
+      mp4UrlPortrait: "",
+      hlsMasterUrlLandscape: "",
+      hlsMasterUrlPortrait: "",
+      posterUrlLandscape: "",
+      posterUrlPortrait: "",
+      variantsVideoLandscape: [],
+      variantsVideoPortrait: [],
+      normalized: false,
+      normalizationReason: "",
+    };
+
+    if (ffprobeAvailable && ffmpegAvailable) {
+      item.status = "processing";
+      item.normalizationReason = "processing";
+      enqueueTranscode(async () => {
+        let videoResult = null;
         try {
-          fs.unlinkSync(req.file.path);
+          videoResult = await processVideoUploadHeavy(finalPath, finalName, target, mediaId);
         } catch (error) {
-          console.warn("Não foi possível remover vídeo original:", error.message);
+          console.error("Erro ao normalizar vídeo enviado:", error.message);
+          updateMediaItemInConfig(target, mediaId, (existing) => ({
+            ...existing,
+            status: "error",
+            normalizationReason: "processing_failed",
+          }));
+          return;
         }
-      }
+
+        const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
+        const portraitUrl = videoResult.portraitPath
+          ? resolveRelativeMediaPath(videoResult.portraitPath)
+          : "";
+        if (!landscapeUrl) {
+          updateMediaItemInConfig(target, mediaId, (existing) => ({
+            ...existing,
+            status: "error",
+            normalizationReason: "invalid_path",
+          }));
+          return;
+        }
+        if (videoResult?.normalized) {
+          try {
+            fs.unlinkSync(finalPath);
+          } catch (_error) {}
+        }
+        updateMediaItemInConfig(target, mediaId, (existing) => {
+          let updatedBase = existing;
+          try {
+            updatedBase = summarizeFile(landscapeUrl.replace("/media/", ""), target);
+          } catch (_error) {}
+          return {
+            ...updatedBase,
+            id: mediaId,
+            width: videoResult.width || null,
+            height: videoResult.height || null,
+            widthLandscape: videoResult.width || null,
+            heightLandscape: videoResult.height || null,
+            widthPortrait: videoResult.height || null,
+            heightPortrait: videoResult.width || null,
+            duration: videoResult.duration || null,
+            urlLandscape: landscapeUrl,
+            urlPortrait: portraitUrl || landscapeUrl,
+            mp4UrlLandscape: landscapeUrl,
+            mp4UrlPortrait: portraitUrl || "",
+            hlsMasterUrl:
+              videoResult.hlsMasterUrlLandscape ||
+              videoResult.hlsMasterUrlPortrait ||
+              "",
+            hlsMasterUrlLandscape: videoResult.hlsMasterUrlLandscape || "",
+            hlsMasterUrlPortrait: videoResult.hlsMasterUrlPortrait || "",
+            posterUrlLandscape: videoResult.posterLandscape || "",
+            posterUrlPortrait: videoResult.posterPortrait || "",
+            variantsVideoLandscape: videoResult.variantsVideoLandscape || [],
+            variantsVideoPortrait: videoResult.variantsVideoPortrait || [],
+            normalized: videoResult.normalized !== false,
+            normalizationReason: videoResult.reason || "",
+            status: undefined,
+          };
+        });
+      }).catch((error) => {
+        console.warn("Fila de transcode falhou:", error.message);
+      });
+    } else {
+      item.normalizationReason = !ffprobeAvailable ? "ffprobe_missing" : "ffmpeg_missing";
     }
-    const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
-    const portraitUrl = videoResult.portraitPath
-      ? resolveRelativeMediaPath(videoResult.portraitPath)
-      : "";
-    if (!landscapeUrl) {
-      return sendJsonError(res, 500, "VIDEO_PROCESSING_ERROR", "Caminho de vídeo inválido.");
-    }
-    item = summarizeFile(landscapeUrl.replace("/media/", ""), target);
-    item.width = videoResult.width || null;
-    item.height = videoResult.height || null;
-    item.widthLandscape = videoResult.width || null;
-    item.heightLandscape = videoResult.height || null;
-    item.widthPortrait = videoResult.height || null;
-    item.heightPortrait = videoResult.width || null;
-    item.duration = videoResult.duration || null;
-    item.id = videoResult.mediaId;
-    item.mp4UrlLandscape = landscapeUrl;
-    item.mp4UrlPortrait = portraitUrl || "";
-    item.hlsMasterUrlLandscape = videoResult.hlsLandscape || "";
-    item.hlsMasterUrlPortrait = videoResult.hlsPortrait || "";
-    item.posterUrlLandscape = videoResult.posterLandscape || "";
-    item.posterUrlPortrait = videoResult.posterPortrait || "";
-    item.normalized = videoResult.normalized !== false;
-    item.normalizationReason = videoResult.reason || "";
   } else {
     let imageResult;
     try {
-      imageResult = await processImageUpload(req.file.path, req.file.filename);
+      imageResult = await processImageUpload(finalPath, finalName);
     } catch (error) {
       console.error("Erro ao normalizar imagem:", error.message);
+      try {
+        fs.unlinkSync(finalPath);
+      } catch (_error) {}
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
     } finally {
       if (sharp) {
         try {
-          fs.unlinkSync(req.file.path);
-        } catch (error) {
-          console.warn("Não foi possível remover imagem original:", error.message);
-        }
+          fs.unlinkSync(finalPath);
+        } catch (_error) {}
       }
     }
-    const bestLandscape = chooseBestVariant(imageResult?.landscape?.variants || []);
-    const bestPortrait = chooseBestVariant(imageResult?.portrait?.variants || []);
+    const bestLandscape = chooseBestVariantExisting(imageResult?.landscape?.variants || []);
+    const bestPortrait = chooseBestVariantExisting(imageResult?.portrait?.variants || []);
     const landscapeUrl =
       bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
     const portraitUrl =
-      bestPortrait?.path || resolveRelativeMediaPath(imageResult?.portrait?.outputPath);
+      bestPortrait?.path ||
+      resolveRelativeMediaPath(imageResult?.portrait?.outputPath) ||
+      landscapeUrl;
+    const portraitVariants =
+      imageResult?.portrait?.variants?.length
+        ? imageResult.portrait.variants
+        : imageResult?.landscape?.variants || [];
     if (!landscapeUrl) {
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Caminho de imagem inválido.");
     }
@@ -2879,8 +3881,16 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     item.heightPortrait = imageResult?.portrait?.height || null;
     item.posterUrlLandscape = landscapeUrl;
     item.posterUrlPortrait = portraitUrl || "";
+    item.urlPortrait = portraitUrl || landscapeUrl;
     item.variantsLandscape = imageResult?.landscape?.variants || [];
-    item.variantsPortrait = imageResult?.portrait?.variants || [];
+    item.variantsPortrait = portraitVariants;
+    if ((process.env.DEBUG_IMAGE_PROCESS || "").toLowerCase() === "true") {
+      const samplePortrait = portraitVariants[0]?.path || "";
+      const exists = samplePortrait ? !!resolveMediaPath(samplePortrait) && fs.existsSync(resolveMediaPath(samplePortrait)) : false;
+      console.log("[image] landscape variants:", (item.variantsLandscape || []).map((v) => v.path));
+      console.log("[image] portrait variants:", (item.variantsPortrait || []).map((v) => v.path));
+      console.log("[image] portrait sample exists:", exists);
+    }
   }
 
   const items = [item];
@@ -2907,7 +3917,6 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
 
   metrics.uploads_total += 1;
   const rotatedPath =
-    item.hlsMasterUrlPortrait ||
     item.mp4UrlPortrait ||
     item.posterUrlPortrait ||
     item.mp4UrlLandscape ||
@@ -2925,11 +3934,13 @@ app.post("/api/upload", uploadLimiter, requireUploadAuth, upload.single("file"),
     normalized: item.normalized !== false,
     reason: item.normalizationReason || "",
   });
-});
+  }
+);
 
 // Upload de carrossel de imagens (máx. 10).
 app.post(
   "/api/upload-carousel",
+  restrictedCors,
   uploadLimiter,
   requireUploadAuth,
   uploadCarousel.array("files", MAX_CAROUSEL_ITEMS),
@@ -2951,14 +3962,31 @@ app.post(
   const target = normalizeTarget(req.body?.target);
   const items = [];
   for (const file of files) {
+    let finalPath = null;
     try {
-      const imageResult = await processImageUpload(file.path, file.filename);
-      const bestLandscape = chooseBestVariant(imageResult?.landscape?.variants || []);
-      const bestPortrait = chooseBestVariant(imageResult?.portrait?.variants || []);
+      const ext = (path.extname(file.originalname) || "").toLowerCase();
+      const mime = (file.mimetype || "").toLowerCase();
+      if (!isImageExt(ext) || !ALLOWED_MIME_TYPES.has(mime) || mime === "video/mp4") {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (_error) {}
+        throw new Error("Tipo de arquivo não suportado.");
+      }
+      const finalName = buildFinalUploadName(file.originalname, target, "carousel");
+      finalPath = moveUploadedFile(file.path, finalName);
+      const imageResult = await processImageUpload(finalPath, finalName);
+      const bestLandscape = chooseBestVariantExisting(imageResult?.landscape?.variants || []);
+      const bestPortrait = chooseBestVariantExisting(imageResult?.portrait?.variants || []);
       const landscapeUrl =
         bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
       const portraitUrl =
-        bestPortrait?.path || resolveRelativeMediaPath(imageResult?.portrait?.outputPath);
+        bestPortrait?.path ||
+        resolveRelativeMediaPath(imageResult?.portrait?.outputPath) ||
+        landscapeUrl;
+      const portraitVariants =
+        imageResult?.portrait?.variants?.length
+          ? imageResult.portrait.variants
+          : imageResult?.landscape?.variants || [];
       if (!landscapeUrl || !portraitUrl) {
         throw new Error("Caminho de imagem inválido.");
       }
@@ -2967,16 +3995,30 @@ app.post(
       item.height = imageResult?.landscape?.height || null;
       item.posterUrlLandscape = landscapeUrl;
       item.posterUrlPortrait = portraitUrl;
+      item.urlPortrait = portraitUrl || landscapeUrl;
       item.variantsLandscape = imageResult?.landscape?.variants || [];
-      item.variantsPortrait = imageResult?.portrait?.variants || [];
+      item.variantsPortrait = portraitVariants;
+      if ((process.env.DEBUG_IMAGE_PROCESS || "").toLowerCase() === "true") {
+        const samplePortrait = portraitVariants[0]?.path || "";
+        const exists = samplePortrait ? !!resolveMediaPath(samplePortrait) && fs.existsSync(resolveMediaPath(samplePortrait)) : false;
+        console.log("[carousel] landscape variants:", (item.variantsLandscape || []).map((v) => v.path));
+        console.log("[carousel] portrait variants:", (item.variantsPortrait || []).map((v) => v.path));
+        console.log("[carousel] portrait sample exists:", exists);
+      }
       items.push(item);
     } catch (error) {
       console.error("Erro ao processar imagem do carrossel:", error.message);
+      if (finalPath) {
+        try {
+          fs.unlinkSync(finalPath);
+        } catch (_error) {}
+      }
       return sendJsonError(res, 500, "IMAGE_PROCESSING_ERROR", "Erro ao processar imagem.");
     } finally {
       if (sharp) {
         try {
-          fs.unlinkSync(file.path);
+          const cleanupPath = finalPath || file.path;
+          fs.unlinkSync(cleanupPath);
         } catch (error) {
           console.warn("Não foi possível remover imagem original do carrossel:", error.message);
         }
@@ -3006,7 +4048,8 @@ app.post(
     updatedAt: items[0].updatedAt,
     items,
   });
-});
+  }
+);
 
 app.get("/media/latest", sendLatestMedia);
 app.head("/media/latest", sendLatestMedia);
@@ -3214,7 +4257,7 @@ app.get("/readyz", (_req, res) => {
   });
 });
 
-app.get("/metrics", (_req, res) => {
+app.get("/metrics.prom", (_req, res) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   const lines = [
     `requests_total ${metrics.requests_total}`,
@@ -3224,6 +4267,52 @@ app.get("/metrics", (_req, res) => {
     `errors_total ${metrics.errors_total}`,
   ];
   return res.send(`${lines.join("\n")}\n`);
+});
+
+app.get("/metrics", (_req, res) => {
+  const memory = process.memoryUsage();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = Math.max(totalMem - freeMem, 0);
+  const tvs = readTvConfig();
+  return res.json({
+    ok: true,
+    cpu: {
+      usagePercent: getCpuUsagePercent(),
+      cores: (os.cpus() || []).length,
+      loadAverage1m: os.loadavg()[0] || 0,
+    },
+    memory: {
+      processRssBytes: memory.rss,
+      processHeapUsedBytes: memory.heapUsed,
+      systemUsedBytes: usedMem,
+      systemTotalBytes: totalMem,
+      systemUsagePercent: totalMem ? Number(((usedMem / totalMem) * 100).toFixed(2)) : 0,
+    },
+    tvsConnected: Array.isArray(tvs) ? tvs.length : 0,
+    plays: getTotalPlays(),
+  });
+});
+
+app.get("/healthz", (_req, res) => {
+  return res.json({ ok: true, version: APP_VERSION });
+});
+
+app.get("/readyz", (_req, res) => {
+  const exists = fs.existsSync(mediaDir);
+  let writable = false;
+  if (exists) {
+    try {
+      fs.accessSync(mediaDir, fs.constants.W_OK);
+      writable = true;
+    } catch (_error) {
+      writable = false;
+    }
+  }
+  if (!exists || !writable) {
+    return res.status(503).json({ ok: false, reason: "mediaDir_not_writable" });
+  }
+  return res.json({ ok: true });
 });
 
 app.use((err, _req, res, _next) => {
@@ -3251,10 +4340,51 @@ app.use((err, _req, res, _next) => {
   return sendJsonError(res, 500, "INTERNAL_ERROR", message);
 });
 
-app.listen(PORT, () => {
+const setupManifestWatchers = () => {
+  const debounceMs = 500;
+  let timer = null;
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      bumpManifestVersion();
+    }, debounceMs);
+  };
+  const safeWatch = (target) => {
+    try {
+      if (!fs.existsSync(target)) return;
+      fs.watch(target, { persistent: false }, schedule);
+    } catch (error) {
+      console.warn(`Falha ao observar ${target}:`, error.message);
+    }
+  };
+  safeWatch(catalogFile);
+  safeWatch(mediaConfigFile);
+  safeWatch(mediaDir);
+};
+
+const server = app.listen(PORT, () => {
   initializeMediaBinaries().catch((error) => {
     console.warn("[ffmpeg] falha ao checar binários:", error.message);
   });
   scheduleWeatherMediaRefresh();
+  setupManifestWatchers();
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
+server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+server.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 5000;
+
+const shutdown = (signal) => {
+  console.log(`[shutdown] recebendo ${signal}, encerrando servidor...`);
+  if (!server) {
+    process.exit(0);
+    return;
+  }
+  server.close(() => {
+    Promise.resolve(flushStatsToDisk())
+      .catch(() => {})
+      .finally(() => process.exit(0));
+  });
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

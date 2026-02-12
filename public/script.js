@@ -1,4 +1,4 @@
-const API_BASE = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
+const API_BASE = window.APP_CONFIG?.apiBase || "";
 const mediaArea = document.getElementById("media-area");
 const statusLabel = document.getElementById("status");
 const mediaStories = document.getElementById("media-stories");
@@ -76,6 +76,109 @@ let tvEditingId = null;
 let tvCache = [];
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+const resolveMediaUrl = (value) => {
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return buildUrl(value);
+};
+const hasCacheBust = (url) => /[?&](v|t)=/.test(url || "");
+const withCacheBust = (url, stamp) => {
+  if (!url) return "";
+  if (url.includes(".m3u8")) return url;
+  if (hasCacheBust(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}v=${stamp || Date.now()}`;
+};
+const cleanUrl = (value) => (value || "").toString().split("?")[0];
+const pickVariantFromList = (variants = [], orientation = "landscape") => {
+  const list = Array.isArray(variants) ? variants : [];
+  if (!list.length) return "";
+  const filtered = list.filter((entry) =>
+    orientation === "portrait"
+      ? (entry?.path || "").includes("__portrait__")
+      : (entry?.path || "").includes("__landscape__") || !(entry?.path || "").includes("__portrait__")
+  );
+  const sorted = (filtered.length ? filtered : list).slice().sort((a, b) => (b.width || 0) - (a.width || 0));
+  return sorted[0]?.path || "";
+};
+const pickBestVariantFromFilename = (basePath, orientation = "landscape") => {
+  if (!basePath) return "";
+  const clean = cleanUrl(basePath);
+  if (!clean) return "";
+  if (clean.includes("/media/images/variants/")) {
+    if (/__w\d+/i.test(clean)) {
+      const preferred = orientation === "portrait" ? 1080 : 1920;
+      return clean.replace(/__w\d+/i, `__w${preferred}`);
+    }
+    return clean;
+  }
+  if (!clean.includes("/media/images/")) return "";
+  const ext = pathExt(clean) || "webp";
+  const base = clean.replace("/media/images/", "").replace(/\.\w+$/, "");
+  const width = orientation === "portrait" ? 1080 : 1920;
+  return `/media/images/variants/${base}__${orientation}__w${width}.${ext}`;
+};
+const pathExt = (value) => {
+  const match = (value || "").toString().match(/\.([a-z0-9]+)$/i);
+  return match ? match[1] : "";
+};
+const getItemKind = (item, mode) => {
+  const type = (item?.type || item?.kind || "").toString().toLowerCase();
+  if (type === "video" || type === "image") return type;
+  if (item?.mime && item.mime.startsWith("video/")) return "video";
+  if (item?.mime && item.mime.startsWith("image/")) return "image";
+  return mode === "video" ? "video" : "image";
+};
+const pickItemUrl = (item, { kind, purpose, orientation = "landscape", preferMp4 = false }) => {
+  if (!item) return "";
+  const urlFallback = item.url || item.path || "";
+  if (kind === "video") {
+    const posters =
+      orientation === "portrait"
+        ? [item.posterUrlPortrait, item.posterUrlLandscape, item.posterUrl]
+        : [item.posterUrlLandscape, item.posterUrlPortrait, item.posterUrl];
+    const mp4s =
+      orientation === "portrait"
+        ? [item.mp4UrlPortrait, item.mp4UrlLandscape, item.mp4Url]
+        : [item.mp4UrlLandscape, item.mp4UrlPortrait, item.mp4Url];
+    const hls =
+      orientation === "portrait"
+        ? [item.hlsMasterUrlPortrait, item.hlsMasterUrlLandscape, item.hlsMasterUrl]
+        : [item.hlsMasterUrlLandscape, item.hlsMasterUrlPortrait, item.hlsMasterUrl];
+    if (purpose === "thumb") {
+      return (
+        posters.find(Boolean) ||
+        mp4s.find(Boolean) ||
+        urlFallback
+      );
+    }
+    const playList = preferMp4
+      ? [...mp4s, ...hls]
+      : [...hls, ...mp4s];
+    return playList.find(Boolean) || urlFallback;
+  }
+
+  const variantFromList =
+    orientation === "portrait"
+      ? pickVariantFromList(item.variantsPortrait, "portrait") || pickVariantFromList(item.variantsLandscape, "portrait")
+      : pickVariantFromList(item.variantsLandscape, "landscape") || pickVariantFromList(item.variantsPortrait, "landscape");
+  if (variantFromList) return variantFromList;
+  const variantFromFile =
+    pickBestVariantFromFilename(
+      orientation === "portrait" ? item.posterUrlPortrait || item.posterUrlLandscape || item.posterUrl : item.posterUrlLandscape || item.posterUrlPortrait || item.posterUrl || item.path || item.url,
+      orientation
+    ) || "";
+  if (variantFromFile) return variantFromFile;
+  const posters =
+    orientation === "portrait"
+      ? [item.posterUrlPortrait, item.posterUrlLandscape, item.posterUrl]
+      : [item.posterUrlLandscape, item.posterUrlPortrait, item.posterUrl];
+  return posters.find(Boolean) || urlFallback;
+};
+const buildResolvedUrl = (rawUrl, stamp) => {
+  const resolved = resolveMediaUrl(rawUrl);
+  return withCacheBust(resolved, stamp);
+};
 const kindFromMime = (mime) => (mime && mime.startsWith("video/") ? "video" : "image");
 const detectFileKind = (file) => {
   const name = (file?.name || "").toLowerCase();
@@ -114,18 +217,59 @@ const formatDateTime = (value) => {
 const normalizeMediaPayload = (data) => {
   if (!data) return null;
   const mode = data.mode || (data.mime && data.mime.startsWith("video/") ? "video" : "image");
-  const items = (data.items || []).map((item) => ({
-    ...item,
-    url: item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "",
-    kind: kindFromMime(item.mime),
-  }));
-  const primary = items[0] || data;
-  const mediaUrl = primary.path ? `${buildUrl(primary.path)}?t=${Date.now()}` : data.url || "";
-  const kind = mode === "video" ? "video" : "image";
+  const fallbackUpdatedAt = data.updatedAt || data.configUpdatedAt;
+  const items = (data.items || []).map((item) => {
+    const kind = getItemKind(item, mode);
+    const updatedAt = item.updatedAt || fallbackUpdatedAt || Date.now();
+    const playUrl = pickItemUrl(item, {
+      kind,
+      purpose: "play",
+      orientation: "landscape",
+      preferMp4: true,
+    });
+    const thumbUrl = pickItemUrl(item, {
+      kind,
+      purpose: "thumb",
+      orientation: "landscape",
+      preferMp4: true,
+    });
+    return {
+      ...item,
+      kind,
+      url: playUrl ? buildResolvedUrl(playUrl, updatedAt) : "",
+      thumbUrl: thumbUrl ? buildResolvedUrl(thumbUrl, updatedAt) : "",
+    };
+  });
+  const primary = items[0];
+  if (primary) {
+    return {
+      ...data,
+      url: primary.url || "",
+      thumbUrl: primary.thumbUrl || "",
+      kind: primary.kind || (mode === "video" ? "video" : "image"),
+      mode,
+      items,
+    };
+  }
+  const primaryKind = getItemKind(data, mode);
+  const updatedAt = data.updatedAt || fallbackUpdatedAt || Date.now();
+  const playUrl = pickItemUrl(data, {
+    kind: primaryKind,
+    purpose: "play",
+    orientation: "landscape",
+    preferMp4: true,
+  });
+  const thumbUrl = pickItemUrl(data, {
+    kind: primaryKind,
+    purpose: "thumb",
+    orientation: "landscape",
+    preferMp4: true,
+  });
   return {
     ...data,
-    url: mediaUrl,
-    kind,
+    url: playUrl ? buildResolvedUrl(playUrl, updatedAt) : "",
+    thumbUrl: thumbUrl ? buildResolvedUrl(thumbUrl, updatedAt) : "",
+    kind: primaryKind,
     mode,
     items,
   };
@@ -338,7 +482,7 @@ const buildScoresCard = (data) => {
 
 const fetchExtraData = async (key) => {
   const path = `/api/extras/${key}`;
-  const response = await fetch(buildUrl(`${path}?t=${Date.now()}`), { cache: "no-store" });
+  const response = await fetch(buildUrl(path), { cache: "no-store" });
   if (!response.ok) return null;
   const data = await response.json().catch(() => null);
   return data?.ok ? data : null;
@@ -480,7 +624,7 @@ const renderPlaceholder = () => {
   mediaArea.innerHTML = `
     <div class="placeholder">
       <p>Ao publicar, a página busca o arquivo mais recente no backend configurado.</p>
-      <small>Use “Recarregar mídia” para forçar uma atualização sem cache.</small>
+      <small>Use “Recarregar mídia” para revalidar o conteúdo no servidor.</small>
     </div>
   `;
 };
@@ -511,7 +655,7 @@ const renderMediaInto = (target, candidate) => {
     const first = candidate.items?.[0];
     if (first) {
       const img = document.createElement("img");
-      img.src = first.url || first.path;
+      img.src = first.thumbUrl || first.url || first.path;
       img.alt = first.path || "Carrossel";
       target.appendChild(img);
     }
@@ -524,7 +668,10 @@ const renderMediaInto = (target, candidate) => {
     video.controls = true;
     video.playsInline = true;
     video.preload = "auto";
-    video.poster = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+    video.poster =
+      candidate.thumbUrl ||
+      candidate.poster ||
+      "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
     target.appendChild(video);
   } else {
     const img = document.createElement("img");
@@ -552,8 +699,8 @@ const renderStories = (media) => {
   }
 
   items.forEach((item, index) => {
-    const url = item.url || (item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : "");
-    const kind = kindFromMime(item.mime || media?.mime);
+    const kind = item.kind || getItemKind(item, media?.mode);
+    const url = item.thumbUrl || item.url || "";
     const label = item.path
       ? item.path.replace("/media/", "")
       : kind === "video"
@@ -643,8 +790,9 @@ const getStoryItems = () => {
   const items = currentLiveMedia.items?.length ? currentLiveMedia.items : [currentLiveMedia];
   return items.map((item) => ({
     ...item,
-    url: item.url || (item.path ? `${buildUrl(item.path)}?t=${Date.now()}` : ""),
-    kind: item.kind || kindFromMime(item.mime || currentLiveMedia.mime),
+    url: item.url || "",
+    thumbUrl: item.thumbUrl || "",
+    kind: item.kind || getItemKind(item, currentLiveMedia?.mode),
   }));
 };
 
@@ -654,7 +802,7 @@ const openStoryAt = (index) => {
   const safeIndex = ((index % items.length) + items.length) % items.length;
   storyIndex = safeIndex;
   const item = items[safeIndex];
-  openViewer({ url: item.url, kind: item.kind, mode: item.kind });
+  openViewer({ url: item.url, kind: item.kind, mode: item.kind, poster: item.thumbUrl });
   setActiveStory(safeIndex);
   updateProgressBars(items.length, safeIndex);
   clearStoryAutoplay();
@@ -675,12 +823,14 @@ const hideLoadingOverlay = () => {
 };
 
 const fetchLatestInfo = async (target = selectedTarget) => {
-  const params = new URLSearchParams({ t: Date.now().toString() });
+  const params = new URLSearchParams();
   if (target) params.set("target", target);
-  const url = buildUrl(`/api/info?${params.toString()}`);
-  const response = await fetch(url, { cache: "no-store" });
+  const query = params.toString();
+  const url = buildUrl(`/api/info${query ? `?${query}` : ""}`);
+  const response = await fetch(url);
+  if (response.status === 304 && currentLiveMedia) return currentLiveMedia;
   if (!response.ok) return null;
-  const data = await response.json();
+  const data = await response.json().catch(() => null);
   return normalizeMediaPayload(data);
 };
 
@@ -1124,7 +1274,7 @@ const fetchPromosAdmin = async () => {
   if (!promoStatus) return;
   setPromoMessage("Carregando promoções...");
   try {
-    const response = await fetch(buildUrl(`/api/promos?t=${Date.now()}`), { cache: "no-store" });
+    const response = await fetch(buildUrl("/api/promos"), { cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao carregar promoções.");
     promoCache = data.promos || [];
@@ -1267,7 +1417,7 @@ const fetchTvsAdmin = async () => {
   if (!tvStatus) return;
   setTvMessage("Carregando TVs...");
   try {
-    const response = await fetch(buildUrl(`/api/roku/tvs?t=${Date.now()}`), { cache: "no-store" });
+    const response = await fetch(buildUrl("/api/roku/tvs"), { cache: "no-store" });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao carregar TVs.");
     tvCache = data.tvs || [];
