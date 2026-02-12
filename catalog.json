@@ -1,0 +1,276 @@
+{
+  "generatedAt": "2026-02-12T18:46:00.040Z",
+  "targets": {
+    
+    "todas": {
+      "items": [
+        {
+          "id": "carousel-whatsapp_image_2025-12-31_at_152904-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920webp-1770905941245",
+          "type": "image",
+          "target": "todas",
+          "mp4Url": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920.webp",
+          "mp4UrlLandscape": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920.webp",
+          "mp4UrlPortrait": "",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920.webp",
+          "posterUrlLandscape": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-WhatsApp_Image_2025-12-31_at_15.29.04-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__portrait__w720.webp"
+            }
+          ],
+          "duration": null,
+          "width": 1024,
+          "height": 1536,
+          "updatedAt": 1770905941245.671,
+          "etag": "W/\"carousel-whatsapp_image_2025-12-31_at_152904-2eba1ea5-1b8c-41d7-81a0-df291b0fc52f__landscape__w1920webp-1770905941245-1770905941245.671\""
+        },
+        {
+          "id": "carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920webp-1770905948415",
+          "type": "image",
+          "target": "todas",
+          "mp4Url": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920.webp",
+          "mp4UrlLandscape": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920.webp",
+          "mp4UrlPortrait": "",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920.webp",
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__portrait__w720.webp"
+            }
+          ],
+          "duration": null,
+          "width": 905,
+          "height": 1280,
+          "updatedAt": 1770905948415.9385,
+          "etag": "W/\"carousel-carousel-1767106431731-759ea7-73ca4cac-ea2c-4084-84b0-514873a6076b__landscape__w1920webp-1770905948415-1770905948415.9385\""
+        },
+        {
+          "id": "carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920webp-1770905957458",
+          "type": "image",
+          "target": "todas",
+          "mp4Url": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920.webp",
+          "mp4UrlLandscape": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920.webp",
+          "mp4UrlPortrait": "",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920.webp",
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__portrait__w720.webp"
+            }
+          ],
+          "duration": null,
+          "width": 905,
+          "height": 1280,
+          "updatedAt": 1770905957458.2761,
+          "etag": "W/\"carousel-carousel-1767106431566-38e5db-2e23edc6-f855-4942-8466-302e3e7e1d5f__landscape__w1920webp-1770905957458-1770905957458.2761\""
+        },
+        {
+          "id": "carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920webp-1770905964676",
+          "type": "image",
+          "target": "todas",
+          "mp4Url": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920.webp",
+          "mp4UrlLandscape": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920.webp",
+          "mp4UrlPortrait": "",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920.webp",
+          "posterUrlLandscape": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__portrait__w1920.webp",
+          "variantsLandscape": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w720.webp"
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1920,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__portrait__w1920.webp"
+            },
+            {
+              "width": 1280,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__portrait__w1280.webp"
+            },
+            {
+              "width": 1080,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__portrait__w1080.webp"
+            },
+            {
+              "width": 720,
+              "path": "/media/images/variants/carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__portrait__w720.webp"
+            }
+          ],
+          "duration": null,
+          "width": 905,
+          "height": 1280,
+          "updatedAt": 1770905964676.5454,
+          "etag": "W/\"carousel-carousel-1767106430931-bf312b-a9e3bdf4-40b6-4e63-83d8-de4cc16ce6a4__landscape__w1920webp-1770905964676-1770905964676.5454\""
+        },
+        {
+          "id": "video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959",
+          "type": "video",
+          "target": "acougue",
+          "mp4Url": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__landscape.mp4",
+          "mp4UrlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__landscape.mp4",
+          "mp4UrlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__portrait.mp4",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_landscape.webp",
+          "posterUrlLandscape": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_landscape.webp",
+          "posterUrlPortrait": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_portrait.webp",
+          "variantsLandscape": [],
+          "variantsPortrait": [],
+          "duration": 12.483333,
+          "width": 464,
+          "height": 832,
+          "updatedAt": 1770906023175.7288,
+          "etag": "W/\"video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959-1770906023175.7288\""
+        }
+      ]
+    },
+    "acougue": {
+      "items": [
+        {
+          "id": "video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959",
+          "type": "video",
+          "target": "acougue",
+          "mp4Url": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__landscape.mp4",
+          "mp4UrlLandscape": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__landscape.mp4",
+          "mp4UrlPortrait": "/media/normalized/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319__portrait.mp4",
+          "hlsMasterUrl": "",
+          "hlsMasterUrlLandscape": "",
+          "hlsMasterUrlPortrait": "",
+          "posterUrl": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_landscape.webp",
+          "posterUrlLandscape": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_landscape.webp",
+          "posterUrlPortrait": "/media/images/posters/video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959_portrait.webp",
+          "variantsLandscape": [],
+          "variantsPortrait": [],
+          "duration": 12.483333,
+          "width": 464,
+          "height": 832,
+          "updatedAt": 1770906023175.7288,
+          "etag": "W/\"video-acougue-sorteio_moto_311225-58dad08e-4a24-40c8-a5af-de4b7eb68319-1770906020959-1770906023175.7288\""
+        }
+      ]
+    }
+  }
+}
