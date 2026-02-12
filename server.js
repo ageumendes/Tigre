@@ -1824,6 +1824,15 @@ app.use(
 );
 app.use(requestLogger);
 app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  return next();
+});
+app.use((req, res, next) => {
   res.setHeader("X-Request-Id", req.id);
   metrics.requests_total += 1;
   res.on("finish", () => {
@@ -1854,6 +1863,7 @@ app.use("/media", cors({ origin: "*", methods: ["GET", "HEAD", "OPTIONS"] }));
 app.use("/api", apiCors);
 app.get("/media/*", handleMediaRequest);
 app.head("/media/*", handleMediaRequest);
+app.use("/media", express.static(mediaDir, { maxAge: "0" }));
 const normalizePlayerTarget = (value) => {
   const base = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!base) return "";
@@ -1958,6 +1968,15 @@ app.get("/config.js", (_req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   return res.sendFile(filePath);
+});
+
+app.get("/media-config.json", (_req, res) => {
+  if (!fs.existsSync(mediaConfigFile)) {
+    return res.status(404).json({ ok: false, error: "media-config.json not found" });
+  }
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  return res.sendFile(mediaConfigFile);
 });
 
 app.use((req, res, next) => {
