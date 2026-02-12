@@ -7,6 +7,7 @@
 
   window.APP_CONFIG = {
     ...(window.APP_CONFIG || {}),
-    apiBase: (isLocal ? "http://localhost:3000" : window.location.origin).replace(/\/+$/, ""),
+    // local usa absoluto; produção usa relativo (mesma origem)
+    apiBase: isLocal ? "http://localhost:3000" : "",
   };
 })();

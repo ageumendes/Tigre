@@ -27,10 +27,10 @@ const deriveTargetFromLocation = () => {
   return match ? match[1] : "";
 };
 const target = normalizeTarget(window.PLAYER_TARGET || deriveTargetFromLocation() || "todas");
-const apiBase = (window.APP_CONFIG?.apiBase || "").replace(/\/$/, "");
+const API_BASE = window.APP_CONFIG?.apiBase || "";
 const FORCE_SINGLE = Boolean(window.PLAYER_FORCE_SINGLE);
 const FORCE_MEDIA_ORIENTATION = (window.PLAYER_FORCE_MEDIA_ORIENTATION || "").toLowerCase();
-const buildUrl = (path) => `${apiBase}${path.startsWith("/") ? path : `/${path}`}`;
+const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 const resolveMediaUrl = (value) => {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
