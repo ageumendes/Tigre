@@ -1,4 +1,5 @@
-const API_BASE = window.APP_CONFIG?.apiBase || "";
+const API_BASE =
+  (window.APP_CONFIG?.apiBase || window.location.origin || "").replace(/\/+$/, "");
 const mediaArea = document.getElementById("media-area");
 const statusLabel = document.getElementById("status");
 const mediaStories = document.getElementById("media-stories");
