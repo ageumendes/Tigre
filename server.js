@@ -1952,6 +1952,14 @@ htmlAllowlist.forEach((fileName, route) => {
   app.get(route, sendAllowedHtml(fileName));
 });
 
+app.get("/config.js", (_req, res) => {
+  const filePath = path.join(publicDir, "config.js");
+  if (!fs.existsSync(filePath)) return res.status(404).send("Not found");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  return res.sendFile(filePath);
+});
+
 app.use((req, res, next) => {
   if ((req.method === "GET" || req.method === "HEAD") && req.path.endsWith(".html")) {
     if (!htmlAllowlist.has(req.path)) {
