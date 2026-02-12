@@ -181,6 +181,13 @@ body {
   border-radius: 12px;
   backdrop-filter: blur(6px);
   z-index: 50;
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+.controls.is-hidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .controls button {

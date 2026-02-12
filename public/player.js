@@ -9,6 +9,7 @@ const btnFullscreen = document.getElementById("btn-fullscreen");
 const btnRotate = document.getElementById("btn-rotate");
 const btnPrev = document.getElementById("btn-prev");
 const btnNext = document.getElementById("btn-next");
+const controls = document.getElementById("controls");
 
 const normalizeTarget = (value) => {
   const base = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -44,6 +45,7 @@ const defaultVariantHeight = 720;
 const bandwidthRefreshMs = 90000;
 const lowBandwidthMbps = 1.5;
 const highBandwidthMbps = 5;
+const controlsAutoHideMs = 60 * 1000;
 
 let playlist = [];
 let index = 0;
@@ -57,6 +59,24 @@ let lastManifestEtag = "";
 let measuredBandwidthMbps = 0;
 let bandwidthTimer = null;
 let displayMode = "landscape";
+let controlsHideTimer = null;
+
+const clearControlsHideTimer = () => {
+  if (!controlsHideTimer) return;
+  clearTimeout(controlsHideTimer);
+  controlsHideTimer = null;
+};
+
+const hideControls = () => {
+  controls?.classList.add("is-hidden");
+};
+
+const showControls = ({ restartTimer = true } = {}) => {
+  controls?.classList.remove("is-hidden");
+  if (!restartTimer) return;
+  clearControlsHideTimer();
+  controlsHideTimer = setTimeout(hideControls, controlsAutoHideMs);
+};
 
 const clearTimers = () => {
   if (timer) {
@@ -196,18 +216,10 @@ const resolveImageUrl = (item) => {
     if (best) return resolveMediaUrl(best);
   }
   if (mode === "portrait") {
-    const variantPortrait =
-      pickVariantFromList(item.variantsPortrait, "portrait") ||
-      pickVariantFromList(item.variantsLandscape, "portrait");
+    const variantPortrait = pickVariantFromList(item.variantsPortrait, "portrait");
     if (variantPortrait) return resolveMediaUrl(variantPortrait);
     return resolveMediaUrl(
-      item.urlPortrait ||
-        item.posterUrlPortrait ||
-        item.url ||
-        item.posterUrlLandscape ||
-        item.posterUrl ||
-        item.path ||
-        ""
+      item.urlPortrait || item.posterUrlPortrait || ""
     );
   }
   const variantLandscape =
@@ -273,11 +285,11 @@ const resolveVideoSources = (item) => {
   const mode = getMediaOrientationMode();
   const mp4Fallback =
     mode === "portrait"
-      ? item.mp4UrlPortrait || item.mp4UrlLandscape || item.mp4Url || item.urlPortrait || item.url
+      ? item.mp4UrlPortrait || item.urlPortrait || ""
       : item.mp4UrlLandscape || item.mp4UrlPortrait || item.mp4Url || item.urlLandscape || item.url;
   const poster =
     mode === "portrait"
-      ? item.posterUrlPortrait || item.posterUrlLandscape || item.posterUrl
+      ? item.posterUrlPortrait || ""
       : item.posterUrlLandscape || item.posterUrlPortrait || item.posterUrl;
   const variantsRaw =
     mode === "portrait" ? item.variantsVideoPortrait : item.variantsVideoLandscape;
@@ -287,6 +299,14 @@ const resolveVideoSources = (item) => {
     poster: resolveMediaUrl(poster || ""),
     variants,
   };
+};
+
+const isItemPlayableInCurrentMode = (item) => {
+  if (!item) return false;
+  const kind = getItemKind(item);
+  if (kind === "image") return Boolean(resolveImageUrl(item));
+  const { mp4, variants } = resolveVideoSources(item);
+  return Boolean((Array.isArray(variants) && variants.length) || mp4);
 };
 
 const itemMatchesTarget = (item, currentTarget) => {
@@ -744,6 +764,12 @@ const renderPortraitLayers = async () => {
   const count = playlist.length;
   const safeIndex = ((index % count) + count) % count;
   index = safeIndex;
+  let attempts = 0;
+  while (attempts < count && !isItemPlayableInCurrentMode(playlist[index])) {
+    index = (index + 1) % count;
+    attempts += 1;
+  }
+  if (!isItemPlayableInCurrentMode(playlist[index])) return;
 
   nextLayer.classList.remove("is-active");
   const { kind, element } = await mountLayer(nextLayer, playlist[index], { wait: true });
@@ -908,6 +934,7 @@ const init = async () => {
     renderRingFaces();
   }
   preloadItem(playlist[(index + 1) % playlist.length]);
+  showControls({ restartTimer: true });
 };
 
 btnFullscreen?.addEventListener("click", () => {
@@ -934,6 +961,11 @@ btnPrev?.addEventListener("click", prevItem);
 
 window.addEventListener("resize", debounce(updateScreenClass, 150));
 window.addEventListener("resize", debounce(updateOrientation, 150));
+window.addEventListener("keydown", () => showControls({ restartTimer: true }));
+window.addEventListener("click", () => showControls({ restartTimer: true }));
+window.addEventListener("touchstart", () => showControls({ restartTimer: true }), {
+  passive: true,
+});
 window.addEventListener("orientationchange", () => {
   setTimeout(updateScreenClass, 200);
   setTimeout(updateOrientation, 200);

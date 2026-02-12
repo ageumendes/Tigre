@@ -52,6 +52,7 @@ const normalizedDir = path.join(mediaDir, "normalized");
 const imagesDir = path.join(mediaDir, "images");
 const imageVariantsDir = path.join(imagesDir, "variants");
 const posterDir = path.join(imagesDir, "posters");
+const uploadsDir = path.join(mediaDir, "uploads");
 const videoVariantsDir = path.join(mediaDir, "videos", "variants");
 const hlsDir = path.join(mediaDir, "hls");
 const hlsLatestDir = path.join(mediaDir, "latest");
@@ -316,8 +317,36 @@ const ensureDir = (dir) => {
   }
 };
 
+const ensureMediaBase = async (mediaBaseDir) => {
+  const baseDirs = [
+    path.join(mediaBaseDir, "hls"),
+    path.join(mediaBaseDir, "latest"),
+    path.join(mediaBaseDir, "normalized"),
+    path.join(mediaBaseDir, "images"),
+    path.join(mediaBaseDir, "videos"),
+    path.join(mediaBaseDir, "uploads"),
+  ];
+  await Promise.all(
+    baseDirs.map((dir) => fs.promises.mkdir(dir, { recursive: true }))
+  );
+};
+
+const ensureHlsDirs = async (mediaBaseDir, target, videoKey) => {
+  const safeTarget = normalizeTarget(target);
+  const base = path.join(mediaBaseDir, "hls", safeTarget, videoKey);
+  const dirs = [
+    path.join(base, "landscape", "0"),
+    path.join(base, "landscape", "1"),
+    path.join(base, "landscape", "2"),
+    path.join(base, "portrait", "0"),
+    path.join(base, "portrait", "1"),
+    path.join(base, "portrait", "2"),
+  ];
+  await Promise.all(dirs.map((dir) => fs.promises.mkdir(dir, { recursive: true })));
+};
+
 ensureDir(mediaDir);
-const uploadTmpDir = path.join(mediaDir, ".tmp");
+const uploadTmpDir = path.join(uploadsDir, ".tmp");
 ensureDir(uploadTmpDir);
 ensureDir(screenshotDir);
 ensureDir(normalizedDir);
@@ -965,6 +994,7 @@ const generateHlsVariants = async ({
     } catch (_error) {}
   }
 
+  await ensureHlsDirs(mediaDir, safeTarget, mediaId);
   renditions.forEach((_rendition, index) => {
     ensureDir(path.join(baseDir, String(index)));
   });
@@ -4363,16 +4393,20 @@ const setupManifestWatchers = () => {
   safeWatch(mediaDir);
 };
 
-const server = app.listen(PORT, () => {
-  initializeMediaBinaries().catch((error) => {
-    console.warn("[ffmpeg] falha ao checar binários:", error.message);
+let server = null;
+const startServer = async () => {
+  await ensureMediaBase(mediaDir);
+  server = app.listen(PORT, () => {
+    initializeMediaBinaries().catch((error) => {
+      console.warn("[ffmpeg] falha ao checar binários:", error.message);
+    });
+    scheduleWeatherMediaRefresh();
+    setupManifestWatchers();
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
   });
-  scheduleWeatherMediaRefresh();
-  setupManifestWatchers();
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
-server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
-server.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 5000;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+  server.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 5000;
+};
 
 const shutdown = (signal) => {
   console.log(`[shutdown] recebendo ${signal}, encerrando servidor...`);
@@ -4386,5 +4420,9 @@ const shutdown = (signal) => {
       .finally(() => process.exit(0));
   });
 };
+startServer().catch((error) => {
+  console.error("[boot] falha ao iniciar servidor:", error.message);
+  process.exit(1);
+});
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
