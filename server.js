@@ -102,6 +102,7 @@ const IMAGE_VARIANTS_ALL = (process.env.IMAGE_VARIANTS_ALL || "1920,1280,1080,72
   .filter((value) => Number.isFinite(value));
 const IMAGE_VARIANTS = IMAGE_VARIANTS_ALL;
 const IMAGE_VARIANTS_PORTRAIT = IMAGE_VARIANTS_ALL;
+const IMAGE_JPEG_QUALITY = parseInt(process.env.IMAGE_JPEG_QUALITY || "82", 10) || 82;
 const VIDEO_VARIANTS = (process.env.VIDEO_VARIANTS || "360,720,1080")
   .split(",")
   .map((value) => parseInt(value.trim(), 10))
@@ -459,6 +460,77 @@ const resolveRelativeMediaPath = (absPath) => {
   const rel = path.relative(mediaDir, absPath);
   if (!rel || rel.includes("..")) return null;
   return `/media/${rel.replace(/\\/g, "/")}`;
+};
+
+const replaceExtPreserveQuery = (value, nextExt) => {
+  if (!value || typeof value !== "string") return value;
+  const [base, query] = value.split("?");
+  const replaced = base.replace(/\.[a-z0-9]+$/i, nextExt);
+  return query ? `${replaced}?${query}` : replaced;
+};
+
+const isRokuRequest = (req) => {
+  const client = `${req?.query?.client || ""}`.toLowerCase();
+  if (client === "roku") return true;
+  const ua = `${req?.headers?.["user-agent"] || ""}`.toLowerCase();
+  if (ua.includes("roku")) return true;
+  const targetRaw = `${req?.query?.target || req?.query?.tvTarget || ""}`.toLowerCase();
+  if (targetRaw.includes("roku")) return true;
+  return false;
+};
+
+const ensureJpegFromWebpPath = async (mediaPath) => {
+  if (!sharp || !mediaPath || typeof mediaPath !== "string") return mediaPath;
+  const clean = mediaPath.split("?")[0];
+  if (!clean.startsWith("/media/") || !clean.toLowerCase().endsWith(".webp")) return mediaPath;
+  const jpgPath = replaceExtPreserveQuery(mediaPath, ".jpg");
+  const absJpg = resolveMediaPath(jpgPath);
+  const absWebp = resolveMediaPath(mediaPath);
+  if (!absJpg || !absWebp) return mediaPath;
+  try {
+    if (fs.existsSync(absJpg) && fs.statSync(absJpg).size > 0) return jpgPath;
+  } catch (_error) {}
+  try {
+    if (!fs.existsSync(absWebp)) return mediaPath;
+    await fs.promises.mkdir(path.dirname(absJpg), { recursive: true });
+    await sharp(absWebp)
+      .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+      .toFile(absJpg);
+    return jpgPath;
+  } catch (_error) {
+    return mediaPath;
+  }
+};
+
+const toRokuImagePath = async (value) => {
+  if (!value || typeof value !== "string") return value;
+  const clean = value.split("?")[0];
+  if (!clean.toLowerCase().endsWith(".webp")) return value;
+  const converted = await ensureJpegFromWebpPath(value);
+  return converted || value;
+};
+
+const convertMediaConfigForRoku = async (payload) => {
+  if (!payload || typeof payload !== "object") return payload;
+  const clone = JSON.parse(JSON.stringify(payload));
+  const walk = async (node) => {
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i += 1) {
+        node[i] = await walk(node[i]);
+      }
+      return node;
+    }
+    if (!node || typeof node !== "object") {
+      if (typeof node === "string") return toRokuImagePath(node);
+      return node;
+    }
+    const keys = Object.keys(node);
+    for (const key of keys) {
+      node[key] = await walk(node[key]);
+    }
+    return node;
+  };
+  return walk(clone);
 };
 
 const safeBasename = (value) =>
@@ -1191,20 +1263,35 @@ const processImageVariants = async (
   const targets = Array.isArray(sizes) && sizes.length ? sizes : IMAGE_VARIANTS;
 
   for (const width of targets) {
-    const output = path.join(
+    const outputWebp = path.join(
       imageVariantsDir,
       `${baseName}${suffix}__w${width}.webp`
+    );
+    const outputJpg = path.join(
+      imageVariantsDir,
+      `${baseName}${suffix}__w${width}.jpg`
     );
     const variantBase = rotateDegrees ? sharp(inputPath).rotate(rotateDegrees) : sharp(inputPath).rotate();
     const variant = variantBase;
     if (rotateDegrees) {
-      await variant.resize({ height: width }).webp({ quality: 80 }).toFile(output);
+      await variant.resize({ height: width }).webp({ quality: 80 }).toFile(outputWebp);
+      await sharp(inputPath)
+        .rotate(rotateDegrees)
+        .resize({ height: width })
+        .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+        .toFile(outputJpg);
     } else {
-      await variant.resize({ width }).webp({ quality: 80 }).toFile(output);
+      await variant.resize({ width }).webp({ quality: 80 }).toFile(outputWebp);
+      await sharp(inputPath)
+        .rotate()
+        .resize({ width })
+        .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+        .toFile(outputJpg);
     }
     variants.push({
       width,
-      path: resolveRelativeMediaPath(output),
+      path: resolveRelativeMediaPath(outputWebp),
+      jpgPath: resolveRelativeMediaPath(outputJpg),
     });
   }
 
@@ -1499,6 +1586,11 @@ const processImageUpload = async (filePath, fileName) => {
                   .resize({ width })
                   .webp({ quality: 80 })
                   .toFile(absVariant);
+                await sharp(landscape?.normalizedPath || filePath)
+                  .rotate(90)
+                  .resize({ width })
+                  .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+                  .toFile(absVariant.replace(/\.webp$/i, ".jpg"));
               }
             }
           }
@@ -1970,13 +2062,24 @@ app.get("/config.js", (_req, res) => {
   return res.sendFile(filePath);
 });
 
-app.get("/media-config.json", (_req, res) => {
+app.get("/media-config.json", async (req, res) => {
   if (!fs.existsSync(mediaConfigFile)) {
     return res.status(404).json({ ok: false, error: "media-config.json not found" });
   }
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  return res.sendFile(mediaConfigFile);
+  if (!isRokuRequest(req)) {
+    return res.sendFile(mediaConfigFile);
+  }
+  try {
+    const raw = await fs.promises.readFile(mediaConfigFile, "utf8");
+    const parsed = raw ? JSON.parse(raw) : {};
+    const converted = await convertMediaConfigForRoku(parsed);
+    return res.json(converted);
+  } catch (error) {
+    console.warn("Falha ao adaptar media-config.json para Roku:", error.message);
+    return res.sendFile(mediaConfigFile);
+  }
 });
 
 app.use((req, res, next) => {
