@@ -6,5 +6,5 @@ dist
 .env
 PARAR BACKEND.txt
 media/
-#catalog.json
-#media-config.json
+catalog.json
+media-config.json

@@ -8,7 +8,7 @@ body {
 }
 
 :root {
-  --ringZ: 520px;
+  --ringZ: 600px;
 }
 
 .player-root {
@@ -48,12 +48,6 @@ body {
   justify-content: center;
 }
 
-.mode-landscape .carousel3d {
-  perspective: 1200px;
-  perspective-origin: 50% 50%;
-  transform-style: preserve-3d;
-}
-
 .ring {
   position: relative;
   width: 100%;
@@ -90,10 +84,25 @@ body {
   left: 50%;
   transform-style: preserve-3d;
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: filter 650ms ease, opacity 650ms ease;
+}
+
+.poster,
+.poster img,
+.poster video {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.poster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: center center;
 }
 
 .face img,
@@ -102,6 +111,17 @@ body {
   max-width: 90vw;
   object-fit: contain;
   border-radius: 12px;
+}
+
+.mode-landscape .portrait-carousel .face {
+  box-sizing: border-box;
+  padding: 12px;
+}
+
+.mode-landscape .portrait-carousel .face img,
+.mode-landscape .portrait-carousel .face video {
+  max-height: 83vh;
+  max-width: 83vw;
 }
 
 .portrait-carousel .ring {
@@ -166,7 +186,7 @@ body {
 
 .depth-near img,
 .depth-near video {
-  transform: scale(0.96);
+  transform: translateY(8%) scale(0.8);
 }
 
 .depth-mid img,
@@ -274,8 +294,8 @@ body {
 
 .screen-portrait img,
 .screen-portrait video {
-  max-width: 96vw !important;
-  max-height: 92vh !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   object-fit: contain !important;
 }
 
@@ -319,8 +339,8 @@ body {
 
 .screen-portrait .face img,
 .screen-portrait .face video {
-  max-height: 94vh;
-  max-width: 96vw;
+  max-height: 100%;
+  max-width: 100%;
 }
 
 .screen-portrait .controls {
@@ -332,4 +352,189 @@ body {
 .screen-portrait .controls button {
   padding: 10px 14px;
   font-size: 15px;
+}
+
+/* Ajustes exclusivos para LANDSCAPE (não afeta portrait). */
+@media (orientation: landscape) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden !important;
+  }
+
+  :root {
+    --ringZ: 640px;
+    --front-max-h: 78vh;
+    --front-max-w: 70vw;
+    --side-max-h: 78vh;
+    --near-max-w: 26vw;
+    --mid-max-w: 22vw;
+    --far-max-w: 18vw;
+    --controls-safe: 120px;
+  }
+
+  /* 3D real no carrossel + safe area vertical para evitar corte. */
+  .carousel3d {
+    height: 115vh;
+    max-height: 117vh;
+    padding-top: 1vh;
+    padding-bottom: 5vh;
+    box-sizing: border-box;
+    overflow: visible !important;
+    perspective: 1200px;
+    perspective-origin: 50% 65%;
+    transform-style: preserve-3d;
+  }
+
+  /* Mantido para compatibilidade caso wrapper extra exista no HTML. */
+  .ringStage {
+    overflow: visible !important;
+    transform-origin: center;
+    transform: translateY(2vh) scale(0.90);
+  }
+
+  /* Não sobrescrevemos transform de .rotWrap/.ring para não conflitar com JS. */
+  .rotWrap,
+  .ring {
+    transform-style: preserve-3d;
+    overflow: visible !important;
+  }
+
+  .player-root,
+  .stage {
+    overflow: visible !important;
+  }
+
+  #carousel3d .face img,
+  #carousel3d .face video {
+    width: auto;
+    height: auto;
+    object-fit: contain !important;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  #carousel3d.no-carousel .face {
+    top: 50%;
+    left: 50%;
+  }
+
+  #carousel3d.no-carousel .face.depth-front {
+    transform: translate(-50%, -50%) !important;
+  }
+}
+
+@media (orientation: landscape) {
+  :root {
+    --controls-safe: 140px;
+    --front-max-w: 76vw;
+    --front-max-h: 80vh;
+    --side-max-h: 80vh;
+    --near-max-w: 26vw;
+    --mid-max-w: 22vw;
+    --far-max-w: 18vw;
+  }
+
+  /* sizing padrão (landscape) */
+  #carousel3d .face img,
+  #carousel3d .face video {
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  /* no-carousel (landscape) garantir centralização e tamanho “front” */
+  #carousel3d.no-carousel .face[data-face-index="0"] {
+    transform: translate(-50%, -50%) !important;
+  }
+}
+
+/* notebooks / telas menores (até ~1366x768) */
+@media (orientation: landscape) and (max-width: 1366px) {
+  :root {
+    --controls-safe: 150px;
+    --front-max-w: 86vw;
+    --front-max-h: 72vh;
+    --near-max-w: 30vw;
+    --mid-max-w: 26vw;
+    --far-max-w: 22vw;
+    --side-max-h: 72vh;
+  }
+}
+
+/* 720p/900p/1080p baixos */
+@media (orientation: landscape) and (min-width: 1367px) and (max-width: 1599px) {
+  :root {
+    --controls-safe: 150px;
+    --front-max-w: 82vw;
+    --front-max-h: 76vh;
+    --near-max-w: 28vw;
+    --mid-max-w: 24vw;
+    --far-max-w: 20vw;
+    --side-max-h: 76vh;
+  }
+}
+
+/* TV/Monitor FullHD 1920x1080 */
+@media (orientation: landscape) and (min-width: 1600px) and (max-width: 2399px) {
+  :root {
+    --controls-safe: 140px;
+    --front-max-w: 76vw;
+    --front-max-h: 80vh;
+    --near-max-w: 26vw;
+    --mid-max-w: 22vw;
+    --far-max-w: 18vw;
+    --side-max-h: 80vh;
+  }
+}
+
+/* 2K / QHD (2560x1440) */
+@media (orientation: landscape) and (min-width: 2400px) and (max-width: 3839px) {
+  :root {
+    --controls-safe: 160px;
+    --front-max-w: 72vw;
+    --front-max-h: 82vh;
+    --near-max-w: 24vw;
+    --mid-max-w: 20vw;
+    --far-max-w: 16vw;
+    --side-max-h: 82vh;
+  }
+}
+
+/* 4K (3840x2160+) */
+@media (orientation: landscape) and (min-width: 3840px) {
+  :root {
+    --controls-safe: 190px;
+    --front-max-w: 68vw;
+    --front-max-h: 84vh;
+    --near-max-w: 22vw;
+    --mid-max-w: 18vw;
+    --far-max-w: 14vw;
+    --side-max-h: 84vh;
+  }
+}
+
+@media (orientation: landscape) {
+  #carousel3d .face.depth-front {
+    height: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+
+    transform: translate(-50%, -50%) !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  #carousel3d .face.depth-front img,
+  #carousel3d .face.depth-front video {
+    height: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+    max-width: none !important;
+    object-fit: contain !important;
+  }
 }

@@ -676,6 +676,26 @@ const depthClassForIndex = (index) => {
   return "depth-back";
 };
 
+const applyLandscapeRingRadius = () => {
+  if (!faces.length) return;
+  const isLandscapeScreen = window.innerWidth >= window.innerHeight;
+  if (!isLandscapeScreen) return;
+  const totalFaces = faces.length;
+  if (totalFaces < 3) return;
+
+  const centerFace = faces.find((face) => face.dataset.faceIndex === "0") || faces[0];
+  const centerMedia = centerFace?.querySelector("img,video");
+  const fallbackWidth = stage?.clientWidth || window.innerWidth || 1280;
+  const posterWidth = Math.max(1, Math.round(centerMedia?.clientWidth || fallbackWidth * 0.35));
+  const originalRadius = Math.round((posterWidth / 2) / Math.tan(Math.PI / totalFaces));
+  const radius = Math.round(originalRadius * 0.8);
+
+  faces.forEach((face, index) => {
+    const angle = index * (360 / totalFaces);
+    face.style.transform = `translate(-50%, -50%) rotateY(${angle}deg) translateZ(${radius}px)`;
+  });
+};
+
 const renderRingFaces = async () => {
   clearTimers();
   if (!playlist.length || !faces.length) return;
@@ -721,6 +741,8 @@ const renderRingFaces = async () => {
     const itemIndex = (index + faceIndex) % count;
     mountFace(face, playlist[itemIndex], { preview: true, wait: false });
   }
+
+  applyLandscapeRingRadius();
 
   faces.forEach((face) => {
     const faceIndex = Number(face.dataset.faceIndex || 0);
