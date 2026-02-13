@@ -517,6 +517,10 @@ body {
 }
 
 @media (orientation: landscape) {
+  .ring {
+    transition: none;
+  }
+
   #carousel3d .face.depth-front {
     height: 100% !important;
     max-height: 100% !important;
@@ -536,5 +540,21 @@ body {
     width: auto !important;
     max-width: none !important;
     object-fit: contain !important;
+  }
+}
+
+@media (orientation: landscape) {
+  #carousel3d.three-cards .face[data-face-index="2"],
+  #carousel3d.three-cards .face[data-face-index="3"],
+  #carousel3d.three-cards .face[data-face-index="4"],
+  #carousel3d.three-cards .face[data-face-index="5"],
+  #carousel3d.three-cards .face[data-face-index="6"] {
+    display: none !important;
+  }
+
+  #carousel3d.three-cards .face[data-face-index="0"],
+  #carousel3d.three-cards .face[data-face-index="1"],
+  #carousel3d.three-cards .face[data-face-index="7"] {
+    display: flex !important;
   }
 }

@@ -527,6 +527,13 @@ const convertMediaConfigForRoku = async (payload) => {
     const keys = Object.keys(node);
     for (const key of keys) {
       node[key] = await walk(node[key]);
+      if (
+        typeof node[key] === "string" &&
+        /image\/webp/i.test(node[key]) &&
+        (key === "mime" || key === "contentType" || key === "type")
+      ) {
+        node[key] = node[key].replace(/image\/webp/gi, "image/jpeg");
+      }
     }
     return node;
   };

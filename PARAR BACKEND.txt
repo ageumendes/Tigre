@@ -1,6 +1,44 @@
+Servidor CARTÃO do windows: ssh -i "C:\Users\ADMIN PC\Downloads\LightsailDefaultKey-us-east-1.pem" ubuntu@44.220.84.227
+Servidor CARTÃO do ubuntu: ssh -i "/home/ageu/Downloads/Apps Tigre/card-conciliation/ssh/LightsailDefaultKey-us-east-1.pem" ubuntu@44.220.84.227
+
 PARAR BACKEND:
 ss -lptn 'sport = :3000' || echo "porta 3000 livre"
 kill -INT 6634
 kill -TERM 6634
 pkill -INT -f "node server.js"
 pkill -9 -f "node server.js"
+
+BAIXAR DO GITHUB:
+cd ~/tv-media
+
+# Ver se tem alterações locais (só para conferir)
+git status
+
+# Buscar última versão do GitHub
+git fetch origin
+
+# Ir para a branch main
+git checkout main
+
+# Atualizar para a versão mais recente
+git pull origin main
+
+
+RESET TOTAL GITHUB: 
+cd ~/tv-media
+
+# Cancelar merge atual
+git merge --abort
+
+# Apagar TODAS as alterações locais (cuidado: perde tudo que foi editado aí)
+git reset --hard origin/main
+
+# Remover arquivos não versionados
+git clean -fd
+
+# Garantir que está sincronizado
+git pull origin main
+
+
+PM2 REINICIAR:
+pm2 restart tv-media --update-env

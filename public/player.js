@@ -147,13 +147,10 @@ const updateOrientation = () => {
       renderPortraitLayers();
       return;
     }
+    displayMode = "landscape";
     applyDisplayModeClass();
     clearTimers();
-    if (displayMode === "portrait") {
-      renderPortraitLayers();
-    } else {
-      renderRingFaces();
-    }
+    renderRingFaces();
     return;
   }
   updateScreenClass();
@@ -640,19 +637,17 @@ const isPortraitMedia = (item, element) => {
 const setCarouselMode = (portraitMedia) => {
   if (!carousel3d) return;
   const landscapeScreen = window.innerWidth >= window.innerHeight;
-  if (portraitMedia && landscapeScreen) {
-    carousel3d.classList.add("portrait-carousel");
-    carousel3d.classList.remove("no-carousel");
-  } else {
-    carousel3d.classList.add("no-carousel");
+
+  if (landscapeScreen) {
     carousel3d.classList.remove("portrait-carousel");
-    if (ring) {
-      ring.style.transition = "none";
-      ring.style.transform = "rotateY(0deg)";
-      void ring.offsetWidth;
-      ring.style.transition = "";
-    }
+    carousel3d.classList.remove("no-carousel");
+    carousel3d.classList.add("three-cards");
+    return;
   }
+
+  carousel3d.classList.remove("three-cards");
+  // portrait (mantem comportamento atual sem ring 3D no fluxo de layers)
+  carousel3d.classList.remove("portrait-carousel");
 };
 
 const waitForCenterReady = (element, kind) =>
@@ -680,19 +675,53 @@ const applyLandscapeRingRadius = () => {
   if (!faces.length) return;
   const isLandscapeScreen = window.innerWidth >= window.innerHeight;
   if (!isLandscapeScreen) return;
-  const totalFaces = faces.length;
-  if (totalFaces < 3) return;
+  if (faces.length < 3) return;
 
   const centerFace = faces.find((face) => face.dataset.faceIndex === "0") || faces[0];
   const centerMedia = centerFace?.querySelector("img,video");
   const fallbackWidth = stage?.clientWidth || window.innerWidth || 1280;
   const posterWidth = Math.max(1, Math.round(centerMedia?.clientWidth || fallbackWidth * 0.35));
-  const originalRadius = Math.round((posterWidth / 2) / Math.tan(Math.PI / totalFaces));
-  const radius = Math.round(originalRadius * 0.8);
+  const spacing = posterWidth * 0.72;
+  const visible = new Set([0, 1, 7]);
 
-  faces.forEach((face, index) => {
-    const angle = index * (360 / totalFaces);
-    face.style.transform = `translate(-50%, -50%) rotateY(${angle}deg) translateZ(${radius}px)`;
+  faces.forEach((face, idx) => {
+    face.classList.remove("depth-front", "depth-near", "depth-mid", "depth-far", "depth-back");
+
+    if (!visible.has(idx)) {
+      face.style.display = "none";
+      face.style.opacity = "0";
+      face.style.pointerEvents = "none";
+      return;
+    }
+
+    face.style.display = "flex";
+    face.style.pointerEvents = "auto";
+
+    let offset = 0;
+    let scale = 1;
+    let opacity = 1;
+
+    if (idx === 0) {
+      offset = 0;
+      scale = 1;
+      opacity = 1;
+      face.classList.add("depth-front");
+    }
+    if (idx === 1) {
+      offset = +spacing;
+      scale = 0.8;
+      opacity = 0.65;
+      face.classList.add("depth-near");
+    }
+    if (idx === 7) {
+      offset = -spacing;
+      scale = 0.8;
+      opacity = 0.65;
+      face.classList.add("depth-near");
+    }
+
+    face.style.opacity = String(opacity);
+    face.style.transform = `translate(-50%, -50%) translateX(${offset}px) scale(${scale})`;
   });
 };
 
@@ -702,34 +731,9 @@ const renderRingFaces = async () => {
   const count = playlist.length;
 
   const centerFace = faces.find((face) => face.dataset.faceIndex === "0") || faces[0];
-
-  if (FORCE_SINGLE) {
-    updateSingleModeClass();
-    carousel3d?.classList.add("no-carousel");
-    carousel3d?.classList.remove("portrait-carousel");
-    for (const face of faces) {
-      if (face !== centerFace) clearFace(face);
-    }
-    const { kind, element } = await mountFace(centerFace, playlist[index], {
-      preview: false,
-      wait: true,
-    });
-    if (element && element.tagName === "VIDEO") {
-      element.play().catch(() => {});
-    }
-    if (kind === "image") {
-      scheduleNext(imageDuration);
-    } else {
-      const duration = Number(element?.dataset?.duration || 0) || 0;
-      if (duration > 0) {
-        scheduleSafetyTimeout(duration);
-      } else {
-        scheduleSafetyTimeout(60);
-      }
-    }
-    preloadItem(playlist[(index + 1) % playlist.length]);
-    return;
-  }
+  carousel3d?.classList.remove("no-carousel");
+  carousel3d?.classList.remove("portrait-carousel");
+  carousel3d?.classList.add("three-cards");
 
   const centerMount = centerFace
     ? mountFace(centerFace, playlist[index], { preview: false, wait: false })
@@ -743,18 +747,6 @@ const renderRingFaces = async () => {
   }
 
   applyLandscapeRingRadius();
-
-  faces.forEach((face) => {
-    const faceIndex = Number(face.dataset.faceIndex || 0);
-    face.classList.remove(
-      "depth-front",
-      "depth-near",
-      "depth-mid",
-      "depth-far",
-      "depth-back"
-    );
-    face.classList.add(depthClassForIndex(faceIndex));
-  });
 
   const { kind, element } = await centerMount;
 
@@ -846,7 +838,7 @@ const resetRing = () => {
 };
 
 const animateNext = () => {
-  if (!carousel3d?.classList.contains("portrait-carousel")) {
+  if (displayMode !== "portrait") {
     showItemAtLandscape(index + 1);
     return;
   }
@@ -868,7 +860,7 @@ const animateNext = () => {
 };
 
 const animatePrev = () => {
-  if (!carousel3d?.classList.contains("portrait-carousel")) {
+  if (displayMode !== "portrait") {
     showItemAtLandscape(index - 1);
     return;
   }
@@ -941,8 +933,7 @@ const init = async () => {
   orientation = getOrientation();
   updateScreenClass();
   updateSingleModeClass();
-  displayMode =
-    FORCE_SINGLE || window.innerHeight > window.innerWidth ? "portrait" : "landscape";
+  displayMode = orientation === "portrait" ? "portrait" : "landscape";
   applyDisplayModeClass();
   startBandwidthMonitor();
   startManifestSse();
@@ -969,14 +960,8 @@ btnFullscreen?.addEventListener("click", () => {
 });
 
 btnRotate?.addEventListener("click", () => {
-  displayMode = displayMode === "landscape" ? "portrait" : "landscape";
-  applyDisplayModeClass();
-  clearTimers();
-  if (displayMode === "portrait") {
-    renderPortraitLayers();
-  } else {
-    renderRingFaces();
-  }
+  if (displayMode !== "landscape") return;
+  renderRingFaces();
 });
 btnNext?.addEventListener("click", nextItem);
 btnPrev?.addEventListener("click", prevItem);
