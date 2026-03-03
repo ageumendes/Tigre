@@ -1,0 +1,545 @@
+{
+  "mode": "carousel",
+  "items": [
+    {
+      "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+      "mime": "image/webp",
+      "size": 134274,
+      "updatedAt": 1772476135527.586,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": "",
+      "width": 1920,
+      "height": 2636,
+      "posterUrlLandscape": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+      "urlPortrait": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+      "variantsLandscape": [
+        {
+          "width": 720,
+          "height": 1280,
+          "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+          "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1080,
+          "height": 1920,
+          "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__1080x1920.webp",
+          "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__1080x1920.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1280,
+          "height": 720,
+          "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+          "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1920x1080.webp",
+          "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1920x1080.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "rokuLandscapeJpg": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.jpg",
+      "rokuPortraitJpg": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.jpg"
+    },
+    {
+      "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+      "mime": "image/webp",
+      "size": 135340,
+      "updatedAt": 1772476142851.5776,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": "",
+      "width": 1920,
+      "height": 2714,
+      "posterUrlLandscape": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+      "urlPortrait": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+      "variantsLandscape": [
+        {
+          "width": 720,
+          "height": 1280,
+          "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+          "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1080,
+          "height": 1920,
+          "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__1080x1920.webp",
+          "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__1080x1920.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1280,
+          "height": 720,
+          "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+          "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1920x1080.webp",
+          "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1920x1080.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "rokuLandscapeJpg": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.jpg",
+      "rokuPortraitJpg": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.jpg"
+    },
+    {
+      "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+      "mime": "image/webp",
+      "size": 117518,
+      "updatedAt": 1772476149314.5703,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": "",
+      "width": 1920,
+      "height": 2714,
+      "posterUrlLandscape": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+      "urlPortrait": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+      "variantsLandscape": [
+        {
+          "width": 720,
+          "height": 1280,
+          "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+          "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1080,
+          "height": 1920,
+          "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__1080x1920.webp",
+          "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__1080x1920.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1280,
+          "height": 720,
+          "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+          "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1920x1080.webp",
+          "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1920x1080.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "rokuLandscapeJpg": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.jpg",
+      "rokuPortraitJpg": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.jpg"
+    },
+    {
+      "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+      "mime": "image/webp",
+      "size": 115684,
+      "updatedAt": 1772476155383.5632,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": "",
+      "width": 1920,
+      "height": 2714,
+      "posterUrlLandscape": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+      "urlPortrait": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+      "variantsLandscape": [
+        {
+          "width": 720,
+          "height": 1280,
+          "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+          "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1080,
+          "height": 1920,
+          "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__1080x1920.webp",
+          "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__1080x1920.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1280,
+          "height": 720,
+          "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+          "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1920x1080.webp",
+          "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1920x1080.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "rokuLandscapeJpg": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.jpg",
+      "rokuPortraitJpg": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.jpg"
+    },
+    {
+      "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+      "mime": "image/webp",
+      "size": 133822,
+      "updatedAt": 1772476161478.556,
+      "target": "todas",
+      "visivel": true,
+      "exibicao": "10s",
+      "intervalo": "",
+      "width": 1920,
+      "height": 2714,
+      "posterUrlLandscape": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+      "posterUrlPortrait": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+      "urlPortrait": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+      "variantsLandscape": [
+        {
+          "width": 720,
+          "height": 1280,
+          "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+          "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1080,
+          "height": 1920,
+          "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__1080x1920.webp",
+          "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__1080x1920.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "variantsPortrait": [
+        {
+          "width": 1280,
+          "height": 720,
+          "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+          "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.jpg",
+          "profile": "roku",
+          "exact": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1920x1080.webp",
+          "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1920x1080.jpg",
+          "profile": "roku",
+          "exact": true
+        }
+      ],
+      "rokuLandscapeJpg": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.jpg",
+      "rokuPortraitJpg": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.jpg"
+    }
+  ],
+  "updatedAt": 1772476166907,
+  "targets": {
+    "todas": {
+      "mode": "carousel",
+      "items": [
+        {
+          "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+          "mime": "image/webp",
+          "size": 134274,
+          "updatedAt": 1772476135527.586,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": "",
+          "width": 1920,
+          "height": 2636,
+          "posterUrlLandscape": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+          "urlPortrait": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+          "variantsLandscape": [
+            {
+              "width": 720,
+              "height": 1280,
+              "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.webp",
+              "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1080,
+              "height": 1920,
+              "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__1080x1920.webp",
+              "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__1080x1920.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1280,
+              "height": 720,
+              "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.webp",
+              "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "path": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1920x1080.webp",
+              "jpgPath": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1920x1080.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "rokuLandscapeJpg": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__landscape__roku__720x1280.jpg",
+          "rokuPortraitJpg": "/media/images/variants/carousel-5-165e1937-1d0e-4b51-afcd-4a1c2862683b__portrait__roku__1280x720.jpg"
+        },
+        {
+          "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+          "mime": "image/webp",
+          "size": 135340,
+          "updatedAt": 1772476142851.5776,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": "",
+          "width": 1920,
+          "height": 2714,
+          "posterUrlLandscape": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+          "urlPortrait": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+          "variantsLandscape": [
+            {
+              "width": 720,
+              "height": 1280,
+              "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.webp",
+              "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1080,
+              "height": 1920,
+              "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__1080x1920.webp",
+              "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__1080x1920.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1280,
+              "height": 720,
+              "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.webp",
+              "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "path": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1920x1080.webp",
+              "jpgPath": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1920x1080.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "rokuLandscapeJpg": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__landscape__roku__720x1280.jpg",
+          "rokuPortraitJpg": "/media/images/variants/carousel-4-6ee56106-0703-4c2b-b369-72a2a301aaaa__portrait__roku__1280x720.jpg"
+        },
+        {
+          "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+          "mime": "image/webp",
+          "size": 117518,
+          "updatedAt": 1772476149314.5703,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": "",
+          "width": 1920,
+          "height": 2714,
+          "posterUrlLandscape": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+          "urlPortrait": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+          "variantsLandscape": [
+            {
+              "width": 720,
+              "height": 1280,
+              "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.webp",
+              "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1080,
+              "height": 1920,
+              "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__1080x1920.webp",
+              "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__1080x1920.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1280,
+              "height": 720,
+              "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.webp",
+              "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "path": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1920x1080.webp",
+              "jpgPath": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1920x1080.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "rokuLandscapeJpg": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__landscape__roku__720x1280.jpg",
+          "rokuPortraitJpg": "/media/images/variants/carousel-3-5b88fd5b-228f-485b-89d8-278ca9b7702f__portrait__roku__1280x720.jpg"
+        },
+        {
+          "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+          "mime": "image/webp",
+          "size": 115684,
+          "updatedAt": 1772476155383.5632,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": "",
+          "width": 1920,
+          "height": 2714,
+          "posterUrlLandscape": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+          "urlPortrait": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+          "variantsLandscape": [
+            {
+              "width": 720,
+              "height": 1280,
+              "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.webp",
+              "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1080,
+              "height": 1920,
+              "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__1080x1920.webp",
+              "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__1080x1920.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1280,
+              "height": 720,
+              "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.webp",
+              "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "path": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1920x1080.webp",
+              "jpgPath": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1920x1080.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "rokuLandscapeJpg": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__landscape__roku__720x1280.jpg",
+          "rokuPortraitJpg": "/media/images/variants/carousel-2-6edeb220-cfe2-4378-bc55-9e7d20ac8cf9__portrait__roku__1280x720.jpg"
+        },
+        {
+          "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+          "mime": "image/webp",
+          "size": 133822,
+          "updatedAt": 1772476161478.556,
+          "target": "todas",
+          "visivel": true,
+          "exibicao": "10s",
+          "intervalo": "",
+          "width": 1920,
+          "height": 2714,
+          "posterUrlLandscape": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+          "posterUrlPortrait": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+          "urlPortrait": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+          "variantsLandscape": [
+            {
+              "width": 720,
+              "height": 1280,
+              "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.webp",
+              "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1080,
+              "height": 1920,
+              "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__1080x1920.webp",
+              "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__1080x1920.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "variantsPortrait": [
+            {
+              "width": 1280,
+              "height": 720,
+              "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.webp",
+              "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.jpg",
+              "profile": "roku",
+              "exact": true
+            },
+            {
+              "width": 1920,
+              "height": 1080,
+              "path": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1920x1080.webp",
+              "jpgPath": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1920x1080.jpg",
+              "profile": "roku",
+              "exact": true
+            }
+          ],
+          "rokuLandscapeJpg": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__landscape__roku__720x1280.jpg",
+          "rokuPortraitJpg": "/media/images/variants/carousel-1-c53b8c35-3007-4732-bf90-a1087d9cb729__portrait__roku__1280x720.jpg"
+        }
+      ],
+      "target": "todas",
+      "updatedAt": 1772476166907
+    }
+  }
+}

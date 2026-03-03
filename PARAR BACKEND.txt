@@ -8,36 +8,19 @@ kill -TERM 6634
 pkill -INT -f "node server.js"
 pkill -9 -f "node server.js"
 
-BAIXAR DO GITHUB:
-cd ~/tv-media
-
-# Ver se tem alterações locais (só para conferir)
+SUBIR AO GITHUB NO (dev)
 git status
+git add .
+git commit -m "Descrição clara da alteração"
+git push origin main
 
-# Buscar última versão do GitHub
-git fetch origin
-
-# Ir para a branch main
-git checkout main
-
-# Atualizar para a versão mais recente
-git pull origin main
-
-
-RESET TOTAL GITHUB: 
+BAIXAR DO GITHUB NO LIGHTSAIL (Servidor)
 cd ~/tv-media
-
-# Cancelar merge atual
-git merge --abort
-
-# Apagar TODAS as alterações locais (cuidado: perde tudo que foi editado aí)
+git fetch origin
 git reset --hard origin/main
-
-# Remover arquivos não versionados
 git clean -fd
 
-# Garantir que está sincronizado
-git pull origin main
+pm2 restart tv-media --update-env
 
 
 PM2 REINICIAR:

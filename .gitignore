@@ -1,10 +1,6 @@
 node_modules
 npm-debug.log*
-media
 dist
 .DS_Store
 .env
 PARAR BACKEND.txt
-media/
-catalog.json
-media-config.json

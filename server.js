@@ -1,5 +1,6 @@
 try {
-  require("dotenv").config();
+  const dotenvPath = require("path").join(__dirname, ".env");
+  require("dotenv").config({ path: dotenvPath });
 } catch (_error) {
   console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
 }
@@ -103,6 +104,48 @@ const IMAGE_VARIANTS_ALL = (process.env.IMAGE_VARIANTS_ALL || "1920,1280,1080,72
 const IMAGE_VARIANTS = IMAGE_VARIANTS_ALL;
 const IMAGE_VARIANTS_PORTRAIT = IMAGE_VARIANTS_ALL;
 const IMAGE_JPEG_QUALITY = parseInt(process.env.IMAGE_JPEG_QUALITY || "82", 10) || 82;
+const ENABLE_ROKU_IMAGE_VARIANTS =
+  (process.env.ENABLE_ROKU_IMAGE_VARIANTS || "true").toLowerCase() === "true";
+const parseEnvDimension = (value, fallback) => {
+  const num = parseInt(`${value || ""}`.trim(), 10);
+  return Number.isFinite(num) && num > 0 ? num : fallback;
+};
+const parseEnvRotation = (value, fallback = 0) => {
+  const num = Number(`${value || ""}`.trim());
+  return Number.isFinite(num) ? num : fallback;
+};
+const dedupeRokuTargets = (targets = []) => {
+  const seen = new Set();
+  return targets.filter((target) => {
+    const width = parseEnvDimension(target?.width, 0);
+    const height = parseEnvDimension(target?.height, 0);
+    if (!width || !height) return false;
+    const key = `${width}x${height}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    target.width = width;
+    target.height = height;
+    return true;
+  });
+};
+const ROKU_LANDSCAPE_WIDTH = parseEnvDimension(process.env.ROKU_LANDSCAPE_WIDTH, 720);
+const ROKU_LANDSCAPE_HEIGHT = parseEnvDimension(process.env.ROKU_LANDSCAPE_HEIGHT, 1280);
+const ROKU_PORTRAIT_WIDTH = parseEnvDimension(process.env.ROKU_PORTRAIT_WIDTH, 1280);
+const ROKU_PORTRAIT_HEIGHT = parseEnvDimension(process.env.ROKU_PORTRAIT_HEIGHT, 720);
+const ROKU_LANDSCAPE_WIDTH_2 = parseEnvDimension(process.env.ROKU_LANDSCAPE_WIDTH_2, 0);
+const ROKU_LANDSCAPE_HEIGHT_2 = parseEnvDimension(process.env.ROKU_LANDSCAPE_HEIGHT_2, 0);
+const ROKU_PORTRAIT_WIDTH_2 = parseEnvDimension(process.env.ROKU_PORTRAIT_WIDTH_2, 0);
+const ROKU_PORTRAIT_HEIGHT_2 = parseEnvDimension(process.env.ROKU_PORTRAIT_HEIGHT_2, 0);
+const ROKU_LANDSCAPE_ROTATE_DEGREES = parseEnvRotation(process.env.ROKU_LANDSCAPE_ROTATE_DEGREES, 90);
+const ROKU_PORTRAIT_ROTATE_DEGREES = parseEnvRotation(process.env.ROKU_PORTRAIT_ROTATE_DEGREES, 0);
+const ROKU_LANDSCAPE_TARGETS = dedupeRokuTargets([
+  { width: ROKU_LANDSCAPE_WIDTH, height: ROKU_LANDSCAPE_HEIGHT },
+  { width: ROKU_LANDSCAPE_WIDTH_2, height: ROKU_LANDSCAPE_HEIGHT_2 },
+]);
+const ROKU_PORTRAIT_TARGETS = dedupeRokuTargets([
+  { width: ROKU_PORTRAIT_WIDTH, height: ROKU_PORTRAIT_HEIGHT },
+  { width: ROKU_PORTRAIT_WIDTH_2, height: ROKU_PORTRAIT_HEIGHT_2 },
+]);
 const VIDEO_VARIANTS = (process.env.VIDEO_VARIANTS || "360,720,1080")
   .split(",")
   .map((value) => parseInt(value.trim(), 10))
@@ -430,8 +473,16 @@ const collectReferencedFilenames = (entries = []) => {
     addFromUrl(item?.hlsMasterUrlPortrait);
     (item?.variantsVideoLandscape || []).forEach((variant) => addFromUrl(variant?.path));
     (item?.variantsVideoPortrait || []).forEach((variant) => addFromUrl(variant?.path));
-    (item?.variantsLandscape || []).forEach((variant) => addFromUrl(variant?.path));
-    (item?.variantsPortrait || []).forEach((variant) => addFromUrl(variant?.path));
+    (item?.variantsLandscape || []).forEach((variant) => {
+      addFromUrl(variant?.path);
+      addFromUrl(variant?.jpgPath);
+    });
+    (item?.variantsPortrait || []).forEach((variant) => {
+      addFromUrl(variant?.path);
+      addFromUrl(variant?.jpgPath);
+    });
+    addFromUrl(item?.rokuLandscapeJpg);
+    addFromUrl(item?.rokuPortraitJpg);
   });
   return Array.from(keep);
 };
@@ -502,10 +553,132 @@ const ensureJpegFromWebpPath = async (mediaPath) => {
   }
 };
 
+const mapToRokuFixedJpg = (webpPath) => {
+  if (!webpPath || typeof webpPath !== "string") return "";
+  const clean = webpPath.split("?")[0];
+  const directRoku = clean.replace(/\.webp$/i, ".jpg");
+  if (directRoku !== clean) {
+    const absDirect = resolveMediaPath(directRoku);
+    try {
+      if (absDirect && fs.existsSync(absDirect) && fs.statSync(absDirect).size > 0) {
+        return directRoku;
+      }
+    } catch (_error) {}
+  }
+  const isPortrait = clean.includes("__portrait__");
+  const targets = isPortrait ? ROKU_PORTRAIT_TARGETS : ROKU_LANDSCAPE_TARGETS;
+  const primary = targets[0] || {
+    width: isPortrait ? ROKU_PORTRAIT_WIDTH : ROKU_LANDSCAPE_WIDTH,
+    height: isPortrait ? ROKU_PORTRAIT_HEIGHT : ROKU_LANDSCAPE_HEIGHT,
+  };
+  const pattern = isPortrait
+    ? /__portrait__(?:__w\d+)?\.webp$/i
+    : /__landscape__(?:__w\d+)?\.webp$/i;
+  const baseSuffix = isPortrait ? "__portrait__roku__" : "__landscape__roku__";
+  const candidates = targets.map((target) =>
+    clean.replace(pattern, `${baseSuffix}${target.width}x${target.height}.jpg`)
+  );
+  if (!candidates.length) {
+    candidates.push(
+      clean.replace(pattern, `${baseSuffix}${primary.width}x${primary.height}.jpg`)
+    );
+  }
+  for (const candidate of candidates) {
+    if (!candidate || candidate === clean) continue;
+    const abs = resolveMediaPath(candidate);
+    if (!abs) continue;
+    try {
+      if (fs.existsSync(abs) && fs.statSync(abs).size > 0) return candidate;
+    } catch (_error) {}
+  }
+  const fallback = clean.replace(
+    /\.webp$/i,
+    `${baseSuffix}${primary.width}x${primary.height}.jpg`
+  );
+  const absFallback = resolveMediaPath(fallback);
+  try {
+    if (absFallback && fs.existsSync(absFallback) && fs.statSync(absFallback).size > 0) return fallback;
+  } catch (_error) {}
+  return "";
+};
+
+const resolveExistingMediaUrl = (mediaUrl) => {
+  if (!mediaUrl || typeof mediaUrl !== "string") return "";
+  const abs = resolveMediaPath(mediaUrl);
+  if (!abs) return "";
+  try {
+    if (fs.existsSync(abs) && fs.statSync(abs).size > 0) return mediaUrl;
+  } catch (_error) {}
+  return "";
+};
+
+const getRokuVariantJpgPath = (variant) => {
+  const direct = resolveExistingMediaUrl(variant?.jpgPath);
+  if (direct) return direct;
+  if (typeof variant?.path === "string" && /\.webp(?:\?.*)?$/i.test(variant.path)) {
+    const mapped = mapToRokuFixedJpg(variant.path);
+    if (mapped) return mapped;
+    const fallback = replaceExtPreserveQuery(variant.path, ".jpg");
+    const existing = resolveExistingMediaUrl(fallback);
+    if (existing) return existing;
+  }
+  return resolveExistingMediaUrl(variant?.path);
+};
+
+const pickRokuImagePathForOrientation = (item, orientation = "portrait") => {
+  if (!item || typeof item !== "object") return "";
+  const direct =
+    orientation === "portrait"
+      ? resolveExistingMediaUrl(item.rokuPortraitJpg)
+      : resolveExistingMediaUrl(item.rokuLandscapeJpg);
+  if (direct) return direct;
+  const preferred = chooseRokuVariant(
+    orientation === "portrait" ? item.variantsPortrait : item.variantsLandscape,
+    orientation
+  );
+  const preferredPath = getRokuVariantJpgPath(preferred);
+  if (preferredPath) return preferredPath;
+  const fallbackList =
+    orientation === "portrait"
+      ? [item.posterUrlPortrait, item.urlPortrait, item.posterUrl, item.path]
+      : [item.posterUrlLandscape, item.posterUrl, item.path];
+  for (const entry of fallbackList) {
+    const existing = resolveExistingMediaUrl(entry);
+    if (existing) {
+      if (/\.webp(?:\?.*)?$/i.test(existing)) {
+        return mapToRokuFixedJpg(existing) || existing;
+      }
+      return existing;
+    }
+  }
+  return "";
+};
+
+const applyRokuImagePreference = (item) => {
+  if (!item || typeof item !== "object") return item;
+  const isImageItem =
+    (typeof item.mime === "string" && item.mime.startsWith("image/")) ||
+    Array.isArray(item.variantsPortrait) ||
+    Array.isArray(item.variantsLandscape);
+  if (!isImageItem) return item;
+  const portraitPath = pickRokuImagePathForOrientation(item, "portrait");
+  if (!portraitPath) return item;
+  item.path = portraitPath;
+  item.urlPortrait = portraitPath;
+  item.posterUrlPortrait = portraitPath;
+  item.posterUrl = portraitPath;
+  item.mp4Url = portraitPath;
+  item.mp4UrlPortrait = portraitPath;
+  if (!item.rokuPortraitJpg) item.rokuPortraitJpg = portraitPath;
+  return item;
+};
+
 const toRokuImagePath = async (value) => {
   if (!value || typeof value !== "string") return value;
   const clean = value.split("?")[0];
   if (!clean.toLowerCase().endsWith(".webp")) return value;
+  const rokuFixed = mapToRokuFixedJpg(value);
+  if (rokuFixed) return rokuFixed;
   const converted = await ensureJpegFromWebpPath(value);
   return converted || value;
 };
@@ -535,6 +708,7 @@ const convertMediaConfigForRoku = async (payload) => {
         node[key] = node[key].replace(/image\/webp/gi, "image/jpeg");
       }
     }
+    applyRokuImagePreference(node);
     return node;
   };
   return walk(clone);
@@ -1251,6 +1425,71 @@ const generateMp4Variants = async (inputPath, baseName, orientation) => {
   return list;
 };
 
+const buildRokuVariantPath = (baseName, orientation, width, height, ext = "jpg") => {
+  const suffix = orientation ? `__${orientation}` : "";
+  return path.join(imageVariantsDir, `${baseName}${suffix}__roku__${width}x${height}.${ext}`);
+};
+
+const getRokuTargetsByOrientation = (orientation) =>
+  orientation === "portrait" ? ROKU_PORTRAIT_TARGETS : ROKU_LANDSCAPE_TARGETS;
+
+const buildRokuPipeline = (inputPath, orientation) =>
+  sharp(inputPath).rotate(
+    orientation === "landscape" ? ROKU_LANDSCAPE_ROTATE_DEGREES : ROKU_PORTRAIT_ROTATE_DEGREES
+  );
+
+const generateRokuVariants = async (inputPath, baseName, orientation) => {
+  if (!sharp) return null;
+  const targets = getRokuTargetsByOrientation(orientation);
+  if (!targets.length) return [];
+  const list = [];
+  for (const target of targets) {
+    const outputWebp = buildRokuVariantPath(
+      baseName,
+      orientation,
+      target.width,
+      target.height,
+      "webp"
+    );
+    const outputJpg = buildRokuVariantPath(
+      baseName,
+      orientation,
+      target.width,
+      target.height,
+      "jpg"
+    );
+    await buildRokuPipeline(inputPath, orientation)
+      .resize({
+        width: target.width,
+        height: target.height,
+        fit: "fill",
+        background: { r: 0, g: 0, b: 0, alpha: 1 },
+        withoutEnlargement: false,
+      })
+      .webp({ quality: 82 })
+      .toFile(outputWebp);
+    await buildRokuPipeline(inputPath, orientation)
+      .resize({
+        width: target.width,
+        height: target.height,
+        fit: "fill",
+        background: { r: 0, g: 0, b: 0, alpha: 1 },
+        withoutEnlargement: false,
+      })
+      .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
+      .toFile(outputJpg);
+    list.push({
+      width: target.width,
+      height: target.height,
+      path: resolveRelativeMediaPath(outputWebp),
+      jpgPath: resolveRelativeMediaPath(outputJpg),
+      profile: "roku",
+      exact: true,
+    });
+  }
+  return list;
+};
+
 const processImageVariants = async (
   inputPath,
   baseName,
@@ -1266,47 +1505,20 @@ const processImageVariants = async (
   const metadata = await image.metadata();
   await image.webp({ quality: 85 }).toFile(normalizedPath);
 
-  const variants = [];
-  const targets = Array.isArray(sizes) && sizes.length ? sizes : IMAGE_VARIANTS;
-
-  for (const width of targets) {
-    const outputWebp = path.join(
-      imageVariantsDir,
-      `${baseName}${suffix}__w${width}.webp`
-    );
-    const outputJpg = path.join(
-      imageVariantsDir,
-      `${baseName}${suffix}__w${width}.jpg`
-    );
-    const variantBase = rotateDegrees ? sharp(inputPath).rotate(rotateDegrees) : sharp(inputPath).rotate();
-    const variant = variantBase;
-    if (rotateDegrees) {
-      await variant.resize({ height: width }).webp({ quality: 80 }).toFile(outputWebp);
-      await sharp(inputPath)
-        .rotate(rotateDegrees)
-        .resize({ height: width })
-        .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
-        .toFile(outputJpg);
-    } else {
-      await variant.resize({ width }).webp({ quality: 80 }).toFile(outputWebp);
-      await sharp(inputPath)
-        .rotate()
-        .resize({ width })
-        .jpeg({ quality: IMAGE_JPEG_QUALITY, mozjpeg: true })
-        .toFile(outputJpg);
-    }
-    variants.push({
-      width,
-      path: resolveRelativeMediaPath(outputWebp),
-      jpgPath: resolveRelativeMediaPath(outputJpg),
-    });
-  }
+  const variants = ENABLE_ROKU_IMAGE_VARIANTS
+    ? (await generateRokuVariants(inputPath, baseName, orientation || "landscape")) || []
+    : [];
+  const rokuJpegCandidates = variants
+    .map((variant) => variant?.jpgPath || "")
+    .filter((value) => typeof value === "string" && value);
+  const rokuRel = rokuJpegCandidates.length ? rokuJpegCandidates[0] : "";
 
   return {
     normalizedPath,
     width: metadata.width || null,
     height: metadata.height || null,
     variants,
+    rokuJpgPath: rokuRel,
   };
 };
 
@@ -1321,6 +1533,33 @@ const chooseBestVariantExisting = (variants = []) => {
     return absPath && fs.existsSync(absPath);
   });
   return chooseBestVariant(filtered);
+};
+
+const chooseRokuVariant = (variants = [], orientation = "landscape") => {
+  const targets = getRokuTargetsByOrientation(orientation);
+  if (!targets.length) return null;
+  const valid = (variants || []).filter((variant) => {
+    const absPath = resolveMediaPath(variant?.path);
+    return absPath && fs.existsSync(absPath);
+  });
+  for (const target of targets) {
+    const exact = valid.find(
+      (variant) =>
+        variant?.profile === "roku" &&
+        Number(variant?.width) === target.width &&
+        Number(variant?.height) === target.height
+    );
+    if (exact) return exact;
+    const byName = valid.find((variant) =>
+      typeof variant?.path === "string" &&
+      (variant.path.includes(`__roku_${target.width}x${target.height}.jpg`) ||
+        variant.path.includes(`__roku__${target.width}x${target.height}.jpg`) ||
+        variant.path.includes(`__roku_${target.width}x${target.height}.webp`) ||
+        variant.path.includes(`__roku__${target.width}x${target.height}.webp`))
+    );
+    if (byName) return byName;
+  }
+  return null;
 };
 
 const buildVideoFallback = (filePath, fileName, reason, mediaIdOverride) => ({
@@ -1530,13 +1769,14 @@ const processImageUpload = async (filePath, fileName) => {
       } catch (_error) {}
     }
     return {
-      landscape: { outputPath: filePath, width: null, height: null, variants: [] },
+      landscape: { outputPath: filePath, width: null, height: null, variants: [], rokuJpgPath: "" },
       portrait: ENABLE_PORTRAIT_VARIANTS
         ? {
             outputPath: fs.existsSync(portraitOutput) ? portraitOutput : filePath,
             width: null,
             height: null,
             variants: [],
+            rokuJpgPath: "",
           }
         : null,
       portraitFallback: ENABLE_PORTRAIT_VARIANTS,
@@ -1580,7 +1820,9 @@ const processImageUpload = async (filePath, fileName) => {
     }
     if (portrait?.variants?.length) {
       const bestPortrait = chooseBestVariantExisting(portrait.variants);
-      if (bestPortrait?.path) {
+      const isFixedRokuPortrait =
+        bestPortrait?.profile === "roku" && Number.isFinite(bestPortrait?.height);
+      if (bestPortrait?.path && !isFixedRokuPortrait) {
         try {
           const absVariant = resolveMediaPath(bestPortrait.path);
           if (absVariant) {
@@ -1665,6 +1907,7 @@ const processImageUpload = async (filePath, fileName) => {
       width: landscape?.width || null,
       height: landscape?.height || null,
       variants: landscape?.variants || [],
+      rokuJpgPath: landscape?.rokuJpgPath || "",
     },
     portrait: portrait
       ? {
@@ -1672,6 +1915,7 @@ const processImageUpload = async (filePath, fileName) => {
           width: portrait?.width || null,
           height: portrait?.height || null,
           variants: portrait?.variants || [],
+          rokuJpgPath: portrait?.rokuJpgPath || "",
         }
       : null,
     portraitFallback,
@@ -1735,6 +1979,16 @@ const buildCatalogItem = (item) => {
     etag: item.etag || `W/"${id}-${item.updatedAt || 0}"`,
   };
   return meta;
+};
+
+const mapCatalogItemForRoku = (item) => {
+  if (!item || typeof item !== "object") return item;
+  const clone = { ...item };
+  applyRokuImagePreference(clone);
+  if (typeof clone.mime === "string" && /image\/webp/i.test(clone.mime)) {
+    clone.mime = clone.mime.replace(/image\/webp/gi, "image/jpeg");
+  }
+  return clone;
 };
 
 const generateCatalogFromConfig = () => {
@@ -3838,6 +4092,7 @@ app.get("/api/ping.bin", (_req, res) => {
 });
 
 app.get("/api/catalog", (req, res) => {
+  const rokuRequest = isRokuRequest(req);
   const target = normalizeTarget(req.query?.target || "todas");
   const catalog = readCatalog() || writeCatalog();
   const baseItems = catalog?.targets?.[target]?.items || [];
@@ -3849,7 +4104,7 @@ app.get("/api/catalog", (req, res) => {
     const id = item?.id || buildItemId(item);
     if (seen.has(id)) return;
     seen.add(id);
-    unique.push({ ...item, id });
+    unique.push(rokuRequest ? mapCatalogItemForRoku({ ...item, id }) : { ...item, id });
   });
   const etag = `W/"catalog-${target}-${catalog?.generatedAt || "0"}-${unique.length}"`;
   res.setHeader("ETag", etag);
@@ -4024,8 +4279,12 @@ app.post(
         } catch (_error) {}
       }
     }
-    const bestLandscape = chooseBestVariantExisting(imageResult?.landscape?.variants || []);
-    const bestPortrait = chooseBestVariantExisting(imageResult?.portrait?.variants || []);
+    const bestLandscape =
+      chooseRokuVariant(imageResult?.landscape?.variants || [], "landscape") ||
+      chooseBestVariantExisting(imageResult?.landscape?.variants || []);
+    const bestPortrait =
+      chooseRokuVariant(imageResult?.portrait?.variants || [], "portrait") ||
+      chooseBestVariantExisting(imageResult?.portrait?.variants || []);
     const landscapeUrl =
       bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
     const portraitUrl =
@@ -4051,6 +4310,8 @@ app.post(
     item.urlPortrait = portraitUrl || landscapeUrl;
     item.variantsLandscape = imageResult?.landscape?.variants || [];
     item.variantsPortrait = portraitVariants;
+    item.rokuLandscapeJpg = imageResult?.landscape?.rokuJpgPath || "";
+    item.rokuPortraitJpg = imageResult?.portrait?.rokuJpgPath || "";
     if ((process.env.DEBUG_IMAGE_PROCESS || "").toLowerCase() === "true") {
       const samplePortrait = portraitVariants[0]?.path || "";
       const exists = samplePortrait ? !!resolveMediaPath(samplePortrait) && fs.existsSync(resolveMediaPath(samplePortrait)) : false;
@@ -4142,8 +4403,12 @@ app.post(
       const finalName = buildFinalUploadName(file.originalname, target, "carousel");
       finalPath = moveUploadedFile(file.path, finalName);
       const imageResult = await processImageUpload(finalPath, finalName);
-      const bestLandscape = chooseBestVariantExisting(imageResult?.landscape?.variants || []);
-      const bestPortrait = chooseBestVariantExisting(imageResult?.portrait?.variants || []);
+      const bestLandscape =
+        chooseRokuVariant(imageResult?.landscape?.variants || [], "landscape") ||
+        chooseBestVariantExisting(imageResult?.landscape?.variants || []);
+      const bestPortrait =
+        chooseRokuVariant(imageResult?.portrait?.variants || [], "portrait") ||
+        chooseBestVariantExisting(imageResult?.portrait?.variants || []);
       const landscapeUrl =
         bestLandscape?.path || resolveRelativeMediaPath(imageResult?.landscape?.outputPath);
       const portraitUrl =
@@ -4165,6 +4430,8 @@ app.post(
       item.urlPortrait = portraitUrl || landscapeUrl;
       item.variantsLandscape = imageResult?.landscape?.variants || [];
       item.variantsPortrait = portraitVariants;
+      item.rokuLandscapeJpg = imageResult?.landscape?.rokuJpgPath || "";
+      item.rokuPortraitJpg = imageResult?.portrait?.rokuJpgPath || "";
       if ((process.env.DEBUG_IMAGE_PROCESS || "").toLowerCase() === "true") {
         const samplePortrait = portraitVariants[0]?.path || "";
         const exists = samplePortrait ? !!resolveMediaPath(samplePortrait) && fs.existsSync(resolveMediaPath(samplePortrait)) : false;
