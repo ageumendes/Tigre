@@ -57,6 +57,11 @@
       position: relative;
       background: #160a00;
       max-height: 72vh;
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+      will-change: transform, opacity;
+      transition: transform 180ms ease, opacity 180ms ease;
     }
     #media-container video,
     #media-container img {
@@ -279,6 +284,7 @@
     let storyIndex = 0;
     let storyTimer = null;
     let activeVideo = null;
+    let swipeAnimating = false;
 
     const applyRoundedFavicon = () => {
       const link = document.querySelector('link[rel="icon"]');
@@ -536,6 +542,23 @@
         .sort((a, b) => (b.width || 0) - (a.width || 0));
       return sorted[0]?.path || "";
     };
+    const pickJpgMediaUrl = (item, orientation = "landscape") => {
+      if (!item) return "";
+      const variants = orientation === "portrait" ? item.variantsPortrait : item.variantsLandscape;
+      const candidates = (Array.isArray(variants) ? variants : [])
+        .filter((entry) => entry?.jpgPath || /\.jpe?g(?:\?|$)/i.test(entry?.path || ""))
+        .slice()
+        .sort((a, b) => (b.width || 0) - (a.width || 0));
+      const selected = candidates[0];
+      if (selected?.jpgPath) return selected.jpgPath;
+      if (selected?.path) return selected.path;
+      const direct = orientation === "portrait" ? item.rokuPortraitJpg : item.rokuLandscapeJpg;
+      if (direct) return direct;
+      const fallback = item.posterUrlLandscape || item.posterUrl || item.path || item.url || "";
+      return /\.webp(?:\?|$)/i.test(fallback)
+        ? fallback.replace(/\.webp(?=\?|$)/i, ".jpg")
+        : fallback;
+    };
     const pickBestVariantFromFilename = (basePath, orientation = "landscape") => {
       if (!basePath) return "";
       const clean = cleanUrl(basePath);
@@ -660,9 +683,17 @@
             const updatedAt = item.updatedAt || Date.now();
             const resolved = resolveMediaUrl(rawUrl);
             const finalUrl = withCacheBust(resolved, updatedAt);
+            const jpgRawUrl = kind === "image" ? pickJpgMediaUrl(item, "landscape") : rawUrl;
+            const jpgUrl = kind === "image"
+              ? `${buildUrl("/api/media/jpeg")}?path=${encodeURIComponent(cleanUrl(jpgRawUrl))}&v=${updatedAt}`
+              : withCacheBust(resolveMediaUrl(jpgRawUrl), updatedAt);
             return {
               ...item,
               url: finalUrl,
+              downloadUrl: jpgUrl || finalUrl,
+              shareMediaUrl: jpgUrl || finalUrl,
+              downloadFilename: (cleanUrl(jpgRawUrl).split("/").pop() || "promocao.jpg")
+                .replace(/\.(webp|png|jpeg?)$/i, ".jpg"),
               kind: deriveKind(
                 { ...item, url: finalUrl },
                 item.type === "video" ? "video" : "image"
@@ -678,26 +709,46 @@
       }
     };
 
-    const downloadMedia = (url, filename) => {
+    const downloadMedia = async (url, filename) => {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`download_${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
+      a.href = objectUrl;
       a.download = filename || "midia";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     };
 
-    const handleDownloadClick = () => {
+    const getMediaFilename = (item, url) => {
+      if (item?.downloadFilename) return item.downloadFilename;
+      const source = cleanUrl(url || item?.path || "");
+      const base = source.split("/").pop() || "promocao.jpg";
+      if (item?.kind === "image") return base.replace(/\.(webp|png|jpeg?)$/i, ".jpg");
+      return base;
+    };
+
+    const handleDownloadClick = async () => {
       if (!mediaItems.length) return;
       const item = mediaItems[storyIndex] || mediaItems[0];
-      if (!item?.url) {
+      const mediaUrl = item?.downloadUrl || item?.url;
+      if (!mediaUrl) {
         setStatus("Não foi possível iniciar o download.", true);
         return;
       }
-      const filename = (item.path || "").split("/").pop() || "midia";
-      sendEvent("download_clicked");
-      setStatus("Iniciando download da mídia…");
-      downloadMedia(item.url, filename);
+      try {
+        const filename = getMediaFilename(item, mediaUrl);
+        setStatus("Preparando mídia em JPG…");
+        await downloadMedia(mediaUrl, filename);
+        sendEvent("download_clicked");
+        setStatus("Download em JPG iniciado.");
+      } catch (error) {
+        console.error("Erro ao baixar:", error);
+        setStatus("Não foi possível iniciar o download.", true);
+      }
     };
 
     const copyToClipboard = async (text) => {
@@ -723,23 +774,47 @@
     };
     const handleShareClick = async () => {
       try {
-        sendEvent("share_clicked");
-
-        const shareUrl = defaultShareUrl || window.location.origin;
-
-        if (navigator.share) {
+        const item = mediaItems[storyIndex] || mediaItems[0];
+        const shareUrl = item?.shareMediaUrl || item?.url || defaultShareUrl || window.location.origin;
+        const filename = getMediaFilename(item, shareUrl);
+        let sharedAsFile = false;
+        if (navigator.share && typeof File === "function" && item?.kind === "image") {
+          try {
+            const response = await fetch(shareUrl, { cache: "no-store" });
+            if (response.ok && (/image\/jpeg/i.test(response.headers.get("content-type") || "") || /\.jpe?g(?:\?|$)/i.test(shareUrl))) {
+              const sourceBlob = await response.blob();
+              const file = new File([sourceBlob], filename, { type: "image/jpeg" });
+              if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                  title: "Promoções do Supermercado Tigre",
+                  text: "Confira esta promoção do Supermercado Tigre.",
+                  files: [file],
+                });
+                sharedAsFile = true;
+              }
+            }
+          } catch (fileShareError) {
+            if (fileShareError?.name === "AbortError") throw fileShareError;
+            console.warn("Compartilhamento por arquivo indisponível; usando link JPG.", fileShareError);
+          }
+        }
+        if (!sharedAsFile && navigator.share) {
           await navigator.share({
             title: "Promoções do Supermercado Tigre",
             text: "Confira as promoções do Supermercado Tigre.",
             url: shareUrl,
           });
-          setStatus("Compartilhado com sucesso.");
-          return;
+          sharedAsFile = true;
         }
-
-        await copyToClipboard(shareUrl);
-        setStatus("Link copiado para compartilhar.", false);
+        if (!sharedAsFile) {
+          await copyToClipboard(shareUrl);
+          setStatus("Link da mídia JPG copiado para compartilhar.", false);
+        } else {
+          setStatus("Mídia JPG compartilhada com sucesso.");
+        }
+        sendEvent("share_clicked");
       } catch (err) {
+        if (err?.name === "AbortError") return;
         console.error("Erro ao compartilhar:", err);
         setStatus("Não foi possível compartilhar.", true);
       }
@@ -780,6 +855,7 @@
     };
 
     const handleConnectClick = () => {
+      if (hasReleased) return;
       sendEvent("connect_clicked");
       logCompletedOnce();
       releaseAccess();
@@ -788,22 +864,72 @@
     const addSwipeNavigation = () => {
       if (!mediaContainer) return;
       let startX = null;
+      let startAt = 0;
+      let activePointerId = null;
+      const resetPosition = () => {
+        mediaContainer.style.transform = "translateX(0)";
+        mediaContainer.style.opacity = "1";
+      };
+      const finishSwipe = (step, direction) => {
+        if (swipeAnimating) return;
+        swipeAnimating = true;
+        mediaContainer.style.transition = "transform 160ms ease, opacity 160ms ease";
+        mediaContainer.style.transform = `translateX(${direction * -110}%)`;
+        mediaContainer.style.opacity = "0.35";
+        setTimeout(() => {
+          showMediaAt(storyIndex + step);
+          mediaContainer.style.transition = "none";
+          mediaContainer.style.transform = `translateX(${direction * 35}%)`;
+          mediaContainer.style.opacity = "0.35";
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            mediaContainer.style.transition = "transform 180ms ease, opacity 180ms ease";
+            resetPosition();
+            setTimeout(() => { swipeAnimating = false; }, 190);
+          }));
+        }, 165);
+      };
       mediaContainer.addEventListener("pointerdown", (event) => {
+        if (swipeAnimating || mediaItems.length < 2) return;
         startX = event.clientX;
+        startAt = performance.now();
+        activePointerId = event.pointerId;
+        mediaContainer.setPointerCapture?.(event.pointerId);
+        mediaContainer.style.transition = "none";
+      });
+      mediaContainer.addEventListener("pointermove", (event) => {
+        if (startX === null || event.pointerId !== activePointerId) return;
+        const delta = Math.max(-160, Math.min(160, event.clientX - startX));
+        mediaContainer.style.transform = `translateX(${delta}px)`;
+        mediaContainer.style.opacity = `${Math.max(0.65, 1 - Math.abs(delta) / 500)}`;
       });
       mediaContainer.addEventListener("pointerup", (event) => {
-        if (startX === null) return;
+        if (startX === null || event.pointerId !== activePointerId) return;
         const delta = event.clientX - startX;
+        const elapsed = Math.max(1, performance.now() - startAt);
+        const velocity = Math.abs(delta) / elapsed;
         startX = null;
-        if (Math.abs(delta) > 40) {
-          showMediaAt(storyIndex + (delta > 0 ? -1 : 1));
+        activePointerId = null;
+        if (Math.abs(delta) > 52 || velocity > 0.45) {
+          const direction = delta > 0 ? -1 : 1;
+          finishSwipe(direction, direction);
+        } else {
+          mediaContainer.style.transition = "transform 180ms ease, opacity 180ms ease";
+          resetPosition();
         }
       });
       mediaContainer.addEventListener("pointerleave", () => {
+        if (startX !== null) {
+          mediaContainer.style.transition = "transform 180ms ease, opacity 180ms ease";
+          resetPosition();
+        }
         startX = null;
+        activePointerId = null;
       });
       mediaContainer.addEventListener("pointercancel", () => {
+        mediaContainer.style.transition = "transform 180ms ease, opacity 180ms ease";
+        resetPosition();
         startX = null;
+        activePointerId = null;
       });
     };
 

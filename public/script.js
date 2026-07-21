@@ -13,6 +13,15 @@ const uploadPreview = document.getElementById("upload-preview");
 const viewUploadButton = document.getElementById("view-upload-button");
 const publishButton = document.getElementById("publish-button");
 const targetSelect = document.getElementById("target-select");
+const mediaEndDateInput = document.getElementById("media-end-date");
+const mediaPermanentInput = document.getElementById("media-permanent");
+const mediaAdminReload = document.getElementById("media-admin-reload");
+const mediaAdminFilter = document.getElementById("media-admin-filter");
+const mediaAdminStatus = document.getElementById("media-admin-status");
+const mediaAdminList = document.getElementById("media-admin-list");
+const transcodeAdminReload = document.getElementById("transcode-admin-reload");
+const transcodeAdminStatus = document.getElementById("transcode-admin-status");
+const transcodeAdminList = document.getElementById("transcode-admin-list");
 const passwordOverlay = document.getElementById("password-overlay");
 const passwordInput = document.getElementById("password-input");
 const passwordConfirm = document.getElementById("password-confirm");
@@ -74,8 +83,17 @@ let promoEditingId = null;
 let promoCache = [];
 let tvEditingId = null;
 let tvCache = [];
+let mediaAdminCache = [];
+let transcodeAdminCache = [];
+let mediaAdminPassword = sessionStorage.getItem("tv-media-admin-password") || "";
 
 const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+const escapeHtml = (value) => `${value ?? ""}`
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#039;");
 const resolveMediaUrl = (value) => {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
@@ -902,6 +920,17 @@ const resetUpload = () => {
   }
 };
 
+const syncPublicationOptions = () => {
+  const permanent = !!mediaPermanentInput?.checked;
+  if (mediaEndDateInput) {
+    mediaEndDateInput.disabled = permanent;
+    if (permanent) mediaEndDateInput.value = "";
+    const today = new Date();
+    today.setDate(today.getDate() + 1);
+    mediaEndDateInput.min = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  }
+};
+
 const showUploadSelection = (files) => {
   if (!files || !files.length) {
     resetUpload();
@@ -1122,6 +1151,16 @@ const publishUpload = async () => {
   if (!currentUpload) return;
   const isCarousel = currentUpload.mode === "carousel" || (currentUpload.files && currentUpload.files.length > 1);
   const target = normalizeTargetClient(selectedTarget);
+  const permanent = !!mediaPermanentInput?.checked;
+  const endDate = (mediaEndDateInput?.value || "").trim();
+  if (!permanent && endDate) {
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (endDate <= todayKey) {
+      setUploadMessage("Escolha uma data futura. A mídia para às 00:00 da data selecionada.", true);
+      return;
+    }
+  }
 
   const password = await requestPassword();
   if (!password) {
@@ -1142,6 +1181,8 @@ const publishUpload = async () => {
 
   const formData = new FormData();
   formData.append("target", target);
+  formData.append("permanent", permanent ? "true" : "false");
+  formData.append("endDate", permanent ? "" : endDate);
   if (isCarousel) {
     filesToSend.forEach((file) => formData.append("files", file));
   } else {
@@ -1310,9 +1351,11 @@ const handlePromoSubmit = async (event) => {
   setPromoMessage(promoEditingId ? "Atualizando promoção..." : "Criando promoção...");
 
   try {
+    const password = await requestPassword();
+    if (!password) throw new Error("Operação cancelada: senha não informada.");
     const response = await fetch(url, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-upload-password": password },
       body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => null);
@@ -1330,7 +1373,12 @@ const deletePromo = async (id) => {
   if (!id) return;
   setPromoMessage("Removendo promoção...");
   try {
-    const response = await fetch(buildUrl(`/api/promos/${id}`), { method: "DELETE" });
+    const password = await requestPassword();
+    if (!password) throw new Error("Operação cancelada: senha não informada.");
+    const response = await fetch(buildUrl(`/api/promos/${id}`), {
+      method: "DELETE",
+      headers: { "x-upload-password": password },
+    });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) throw new Error(data?.message || "Erro ao remover promoção.");
     setPromoMessage("Promoção removida.");
@@ -1511,6 +1559,171 @@ const rebuildTargetSelect = () => {
   updateStatusForTarget();
 };
 
+const setMediaAdminMessage = (message, isError = false) => {
+  if (!mediaAdminStatus) return;
+  mediaAdminStatus.textContent = message;
+  mediaAdminStatus.classList.toggle("error", isError);
+};
+
+const getMediaAdminPassword = async (force = false) => {
+  if (!force && mediaAdminPassword) return mediaAdminPassword;
+  const password = await requestPassword();
+  if (password) {
+    mediaAdminPassword = password;
+    sessionStorage.setItem("tv-media-admin-password", password);
+  }
+  return password;
+};
+
+const getMediaAdminFilteredItems = () => {
+  const filter = mediaAdminFilter?.value || "all";
+  if (filter === "temporary") return mediaAdminCache.filter((item) => !item.permanent && !item.expired);
+  if (filter === "permanent") return mediaAdminCache.filter((item) => item.permanent);
+  if (filter === "expired") return mediaAdminCache.filter((item) => item.expired);
+  if (filter === "hidden") return mediaAdminCache.filter((item) => item.visivel === false);
+  return mediaAdminCache;
+};
+
+const renderMediaAdmin = () => {
+  if (!mediaAdminList) return;
+  const items = getMediaAdminFilteredItems();
+  if (!items.length) {
+    mediaAdminList.innerHTML = '<div class="placeholder"><p>Nenhuma mídia neste filtro.</p></div>';
+    return;
+  }
+  mediaAdminList.innerHTML = items.map((item) => {
+    const preview = item.posterUrlLandscape || item.posterUrlPortrait || item.path || "";
+    const typeLabel = item.mime?.startsWith("video/") ? "Vídeo" : "Imagem";
+    const stateLabel = item.visivel === false ? "Desativada" : item.expired ? "Vencida" : item.permanent ? "Fallback permanente" : "Temporária ativa";
+    return `
+      <article class="media-admin-row" data-target="${escapeHtml(item.target)}" data-id="${escapeHtml(item.id)}">
+        <div class="media-admin-preview">${preview ? `<img src="${escapeHtml(resolveMediaUrl(preview))}" alt="Prévia da mídia" loading="lazy">` : ""}</div>
+        <div class="media-admin-info"><strong>${escapeHtml(item.name || item.id)}</strong><span>${escapeHtml(item.target)} • ${typeLabel} • ${stateLabel}</span></div>
+        <label class="media-admin-field">Fim da reprodução<input data-field="endDate" type="date" value="${escapeHtml(item.endDate || "")}" ${item.permanent ? "disabled" : ""}></label>
+        <label class="media-admin-check"><input data-field="permanent" type="checkbox" ${item.permanent ? "checked" : ""}> Permanente</label>
+        <label class="media-admin-check"><input data-field="visivel" type="checkbox" ${item.visivel !== false ? "checked" : ""}> Ativa</label>
+        <div class="media-admin-actions"><button type="button" class="ghost-button small" data-action="save">Salvar</button><button type="button" class="ghost-button small danger" data-action="delete">Excluir</button></div>
+      </article>`;
+  }).join("");
+};
+
+const loadMediaAdmin = async ({ forcePassword = false } = {}) => {
+  if (!mediaAdminList) return;
+  const password = await getMediaAdminPassword(forcePassword);
+  if (!password) return setMediaAdminMessage("Carregamento cancelado: senha não informada.", true);
+  setMediaAdminMessage("Carregando mídias...");
+  try {
+    const response = await fetch(buildUrl("/api/admin/media"), { cache: "no-store", headers: { "x-upload-password": password } });
+    const data = await response.json().catch(() => null);
+    if (response.status === 401) {
+      mediaAdminPassword = "";
+      sessionStorage.removeItem("tv-media-admin-password");
+    }
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Não foi possível carregar as mídias.");
+    mediaAdminCache = data.items || [];
+    renderMediaAdmin();
+    setMediaAdminMessage(`${mediaAdminCache.length} mídia${mediaAdminCache.length === 1 ? "" : "s"} cadastrada${mediaAdminCache.length === 1 ? "" : "s"}. Fuso: ${data.timezone}.`);
+    loadTranscodeAdmin();
+  } catch (error) {
+    setMediaAdminMessage(error.message || "Falha ao carregar mídias.", true);
+  }
+};
+
+const renderTranscodeAdmin = () => {
+  if (!transcodeAdminList) return;
+  if (!transcodeAdminCache.length) {
+    transcodeAdminList.innerHTML = '<div class="placeholder"><p>Nenhum vídeo aguardando processamento.</p></div>';
+    return;
+  }
+  const labels = { pending: "Aguardando", running: "Processando", retry_wait: "Nova tentativa agendada", failed: "Falha definitiva" };
+  transcodeAdminList.innerHTML = transcodeAdminCache.map((job) => `
+    <div class="transcode-row" data-id="${escapeHtml(job.id)}">
+      <div><strong>${escapeHtml(job.fileName || job.mediaId)}</strong><span>${escapeHtml(job.target)} • ${labels[job.status] || job.status} • tentativa ${job.attempts}/${job.maxAttempts}</span></div>
+      ${job.lastError ? `<small>${escapeHtml(job.lastError)}</small>` : ""}
+      ${job.status === "failed" ? '<button type="button" class="ghost-button small" data-action="retry-transcode">Tentar novamente</button>' : ""}
+    </div>`).join("");
+};
+
+const loadTranscodeAdmin = async () => {
+  if (!transcodeAdminList || !mediaAdminPassword) return;
+  if (transcodeAdminStatus) transcodeAdminStatus.textContent = "Carregando fila...";
+  try {
+    const response = await fetch(buildUrl("/api/admin/transcodes"), { cache: "no-store", headers: { "x-upload-password": mediaAdminPassword } });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Não foi possível carregar a fila.");
+    transcodeAdminCache = data.jobs || [];
+    renderTranscodeAdmin();
+    if (transcodeAdminStatus) transcodeAdminStatus.textContent = `${data.running || 0} processando • ${data.queued || 0} aguardando • ${transcodeAdminCache.length} persistida(s)`;
+  } catch (error) {
+    if (transcodeAdminStatus) transcodeAdminStatus.textContent = error.message || "Falha ao carregar fila.";
+  }
+};
+
+const handleTranscodeAdminClick = async (event) => {
+  const button = event.target.closest('button[data-action="retry-transcode"]');
+  if (!button) return;
+  const id = button.closest(".transcode-row")?.dataset?.id;
+  if (!id || !mediaAdminPassword) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(buildUrl(`/api/admin/transcodes/${encodeURIComponent(id)}/retry`), {
+      method: "POST",
+      headers: { "x-upload-password": mediaAdminPassword },
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Não foi possível repetir a tarefa.");
+    await loadTranscodeAdmin();
+    await loadMediaAdmin();
+  } catch (error) {
+    if (transcodeAdminStatus) transcodeAdminStatus.textContent = error.message || "Falha ao repetir tarefa.";
+    button.disabled = false;
+  }
+};
+
+const handleMediaAdminClick = async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const row = button.closest(".media-admin-row");
+  if (!row) return;
+  const target = row.dataset.target;
+  const id = row.dataset.id;
+  const action = button.dataset.action;
+  const password = await getMediaAdminPassword();
+  if (!password) return;
+  if (action === "delete" && !window.confirm("Deseja excluir esta mídia definitivamente da programação?")) return;
+  const url = buildUrl(`/api/admin/media/${encodeURIComponent(target)}/${encodeURIComponent(id)}`);
+  const options = { method: action === "delete" ? "DELETE" : "PATCH", headers: { "x-upload-password": password } };
+  if (action === "save") {
+    const permanent = !!row.querySelector('[data-field="permanent"]')?.checked;
+    const endDate = row.querySelector('[data-field="endDate"]')?.value || "";
+    const visivel = !!row.querySelector('[data-field="visivel"]')?.checked;
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify({ permanent, endDate, visivel });
+  }
+  button.disabled = true;
+  setMediaAdminMessage(action === "delete" ? "Excluindo mídia..." : "Salvando alterações...");
+  try {
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) throw new Error(data?.message || "Não foi possível alterar a mídia.");
+    await loadMediaAdmin();
+    await loadMedia();
+    showStatusOverlay(action === "delete" ? "Mídia excluída." : "Mídia atualizada.", true);
+  } catch (error) {
+    setMediaAdminMessage(error.message || "Falha ao alterar mídia.", true);
+    button.disabled = false;
+  }
+};
+
+const handleMediaAdminChange = (event) => {
+  if (event.target?.dataset?.field !== "permanent") return;
+  const dateInput = event.target.closest(".media-admin-row")?.querySelector('[data-field="endDate"]');
+  if (dateInput) {
+    dateInput.disabled = event.target.checked;
+    if (event.target.checked) dateInput.value = "";
+  }
+};
+
 const init = () => {
   applyRoundedFavicon();
   renderPlaceholder();
@@ -1529,6 +1742,17 @@ const init = () => {
   if (refreshButton) refreshButton.addEventListener("click", () => loadMedia());
   if (viewLiveButton) viewLiveButton.addEventListener("click", () => openStoryAt(0));
   if (uploadInput) uploadInput.addEventListener("change", handleUploadChange);
+  if (mediaPermanentInput) mediaPermanentInput.addEventListener("change", syncPublicationOptions);
+  syncPublicationOptions();
+  if (mediaAdminReload) mediaAdminReload.addEventListener("click", () => loadMediaAdmin({ forcePassword: !mediaAdminPassword }));
+  if (transcodeAdminReload) transcodeAdminReload.addEventListener("click", loadTranscodeAdmin);
+  if (transcodeAdminList) transcodeAdminList.addEventListener("click", handleTranscodeAdminClick);
+  if (mediaAdminFilter) mediaAdminFilter.addEventListener("change", renderMediaAdmin);
+  if (mediaAdminList) {
+    mediaAdminList.addEventListener("click", handleMediaAdminClick);
+    mediaAdminList.addEventListener("change", handleMediaAdminChange);
+  }
+  if (mediaAdminPassword) loadMediaAdmin();
   if (chooseUploadButton) {
     chooseUploadButton.addEventListener("click", () => uploadInput?.click());
   }

@@ -1,6 +1,7 @@
 const stage = document.getElementById("stage");
 const rotWrap = document.getElementById("rotWrap");
 const carousel3d = document.getElementById("carousel3d");
+const ringStage = carousel3d?.closest(".ringStage");
 const ring = document.getElementById("ring");
 const faces = ring ? Array.from(ring.querySelectorAll(".face")) : [];
 let currentLayer = stage?.querySelector(".layer.current");
@@ -10,6 +11,7 @@ const btnRotate = document.getElementById("btn-rotate");
 const btnPrev = document.getElementById("btn-prev");
 const btnNext = document.getElementById("btn-next");
 const controls = document.getElementById("controls");
+const offlineIndicator = document.getElementById("offline-indicator");
 
 const normalizeTarget = (value) => {
   const base = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -60,6 +62,88 @@ let measuredBandwidthMbps = 0;
 let bandwidthTimer = null;
 let displayMode = "landscape";
 let controlsHideTimer = null;
+let landscapeRenderToken = 0;
+const manifestStorageKey = `tigre-manifest:${target}`;
+const rotationStorageKey = `tigre-rotation:${target}`;
+let rotationManuallySelected = false;
+
+const updateConnectionIndicator = () => {
+  offlineIndicator?.classList.toggle("visible", !navigator.onLine);
+};
+
+const getLocalDateKey = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/La_Paz",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const selectEligibleLocalMedia = (items = []) => {
+  const today = getLocalDateKey();
+  const unique = [];
+  const seen = new Set();
+  items.forEach((item) => {
+    const id = item?.id || `${item?.path || item?.url || "item"}-${item?.updatedAt || 0}`;
+    if (seen.has(id) || item?.visivel === false) return;
+    seen.add(id);
+    unique.push(item);
+  });
+  const active = unique.filter((item) => item.permanent === true || !item.endDate || today < item.endDate);
+  const temporary = active.filter((item) => item.permanent !== true);
+  const permanent = active.filter((item) => item.permanent === true);
+  if (!temporary.length) return permanent;
+  if (!permanent.length) return temporary;
+  const mixed = [];
+  const maxLength = Math.max(temporary.length, permanent.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    if (index < temporary.length) mixed.push(temporary[index]);
+    if (index < permanent.length) mixed.push(permanent[index]);
+  }
+  return mixed;
+};
+
+const getManifestItems = (data, targetKey) => {
+  let primary = [];
+  if (data?.targets?.[targetKey]?.items) primary = data.targets[targetKey].items;
+  else if (Array.isArray(data?.items)) primary = data.items;
+  const offlineFallback = Array.isArray(data?.offlineItems) ? data.offlineItems : [];
+  return selectEligibleLocalMedia([...primary, ...offlineFallback])
+    .filter((item) => itemMatchesTarget(item, targetKey));
+};
+
+const getOfflineMediaUrls = (data) => {
+  const items = [...(data?.items || []), ...(data?.offlineItems || [])];
+  const urls = new Set();
+  const add = (value) => {
+    if (!value || typeof value !== "string" || value.includes(".m3u8")) return;
+    urls.add(resolveMediaUrl(value));
+  };
+  items.forEach((item) => {
+    [item.path, item.url, item.urlLandscape, item.urlPortrait, item.mp4Url, item.mp4UrlLandscape,
+      item.mp4UrlPortrait, item.posterUrl, item.posterUrlLandscape, item.posterUrlPortrait,
+      item.rokuLandscapeJpg, item.rokuPortraitJpg].forEach(add);
+    [item.variantsLandscape, item.variantsPortrait, item.variantsVideoLandscape, item.variantsVideoPortrait]
+      .forEach((list) => (list || []).forEach((variant) => add(variant?.path || variant?.jpgPath)));
+  });
+  return [...urls].slice(0, 24);
+};
+
+const requestOfflineCache = (data) => {
+  if (!navigator.serviceWorker?.controller) return;
+  navigator.serviceWorker.controller.postMessage({ type: "CACHE_PLAYLIST", urls: getOfflineMediaUrls(data) });
+};
+
+const registerOfflineWorker = async () => {
+  if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
+  try {
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+  } catch (_error) {}
+};
 
 const clearControlsHideTimer = () => {
   if (!controlsHideTimer) return;
@@ -135,25 +219,70 @@ const applyDisplayModeClass = () => {
   document.documentElement.classList.toggle("mode-portrait", displayMode === "portrait");
 };
 
-const updateOrientation = () => {
-  const next = getOrientation();
-  if (next !== orientation) {
-    orientation = next;
-    updateScreenClass();
-    if (orientation === "portrait") {
-      displayMode = "portrait";
-      applyDisplayModeClass();
-      clearTimers();
-      renderPortraitLayers();
-      return;
-    }
-    displayMode = "landscape";
-    applyDisplayModeClass();
-    clearTimers();
-    renderRingFaces();
+const normalizeRotation = (value) => {
+  const numeric = Number(value);
+  return [0, 90, 180, 270].includes(numeric) ? numeric : null;
+};
+
+const readSavedRotation = () => {
+  try {
+    const raw = localStorage.getItem(rotationStorageKey);
+    if (raw === null) return null;
+    return normalizeRotation(raw);
+  } catch (_error) {
+    return null;
+  }
+};
+
+const saveRotation = () => {
+  try { localStorage.setItem(rotationStorageKey, `${rotateDeg}`); } catch (_error) {}
+};
+
+const applyRotationState = () => {
+  const inverted = rotateDeg === 180 || rotateDeg === 270;
+  displayMode = rotateDeg === 90 || rotateDeg === 270 ? "portrait" : "landscape";
+  rotWrap?.style.setProperty("--rot", inverted ? "180deg" : "0deg");
+  stage?.style.setProperty("--layer-rot", inverted ? "180deg" : "0deg");
+  document.documentElement.classList.toggle("rotation-inverted", inverted);
+  document.documentElement.dataset.rotation = `${rotateDeg}`;
+  applyDisplayModeClass();
+  if (btnRotate) {
+    const nextRotation = (rotateDeg + 90) % 360;
+    btnRotate.title = `Orientação atual: ${rotateDeg}°. Próxima: ${nextRotation}°.`;
+    btnRotate.setAttribute("aria-label", `Girar de ${rotateDeg} para ${nextRotation} graus`);
+  }
+};
+
+const renderSelectedOrientation = () => {
+  clearTimers();
+  if (!playlist.length) return;
+  if (displayMode === "portrait") {
+    landscapeRenderToken += 1;
+    faces.forEach(clearFace);
+    renderPortraitLayers();
     return;
   }
+  clearLayer(currentLayer);
+  clearLayer(nextLayer);
+  renderRingFaces();
+};
+
+const updateOrientation = () => {
+  const next = getOrientation();
+  orientation = next;
   updateScreenClass();
+  if (rotationManuallySelected) {
+    if (displayMode === "landscape") applyLandscapeRingRadius();
+    return;
+  }
+  if (next !== orientation) {
+    orientation = next;
+  }
+  const automaticRotation = next === "portrait" ? 90 : 0;
+  if (rotateDeg === automaticRotation) return;
+  rotateDeg = automaticRotation;
+  applyRotationState();
+  renderSelectedOrientation();
 };
 
 const debounce = (fn, delayMs) => {
@@ -208,16 +337,15 @@ const resolveImageUrl = (item) => {
   const mode = getMediaOrientationMode();
   const targetWidth = getTargetDisplayWidth();
   const variantsImage = item?.variantsImage;
-  if (Array.isArray(variantsImage) && variantsImage.length) {
-    const best = pickImageVariant(variantsImage, targetWidth);
-    if (best) return resolveMediaUrl(best);
-  }
   if (mode === "portrait") {
     const variantPortrait = pickVariantFromList(item.variantsPortrait, "portrait");
     if (variantPortrait) return resolveMediaUrl(variantPortrait);
-    return resolveMediaUrl(
-      item.urlPortrait || item.posterUrlPortrait || ""
-    );
+    const portraitDirect = item.urlPortrait || item.posterUrlPortrait || item.rokuPortraitJpg || "";
+    if (portraitDirect) return resolveMediaUrl(portraitDirect);
+  }
+  if (Array.isArray(variantsImage) && variantsImage.length) {
+    const best = pickImageVariant(variantsImage, targetWidth);
+    if (best) return resolveMediaUrl(best);
   }
   const variantLandscape =
     pickVariantFromList(item.variantsLandscape, "landscape") ||
@@ -282,11 +410,11 @@ const resolveVideoSources = (item) => {
   const mode = getMediaOrientationMode();
   const mp4Fallback =
     mode === "portrait"
-      ? item.mp4UrlPortrait || item.urlPortrait || ""
+      ? item.mp4UrlPortrait || item.urlPortrait || item.mp4UrlLandscape || item.mp4Url || item.urlLandscape || item.url || ""
       : item.mp4UrlLandscape || item.mp4UrlPortrait || item.mp4Url || item.urlLandscape || item.url;
   const poster =
     mode === "portrait"
-      ? item.posterUrlPortrait || ""
+      ? item.posterUrlPortrait || item.posterUrlLandscape || item.posterUrl || ""
       : item.posterUrlLandscape || item.posterUrlPortrait || item.posterUrl;
   const variantsRaw =
     mode === "portrait" ? item.variantsVideoPortrait : item.variantsVideoLandscape;
@@ -328,29 +456,35 @@ const loadCatalog = async () => {
   const data = response.data;
   if (!data) return [];
   const targetKey = normalizeTarget(target);
-  let items = [];
-  if (data.targets && data.targets[targetKey]?.items) {
-    items = data.targets[targetKey].items;
-  } else if (Array.isArray(data.items)) {
-    items = data.items;
-  }
-  return (items || []).filter((item) => itemMatchesTarget(item, targetKey));
+  requestOfflineCache(data);
+  return getManifestItems(data, targetKey);
 };
 
 const fetchManifest = async (query = "") => {
   const headers = {};
   if (lastManifestEtag) headers["If-None-Match"] = lastManifestEtag;
-  const response = await fetch(
-    buildUrl(`/api/media/manifest?target=${encodeURIComponent(target)}${query}`),
-    { headers }
-  );
-  if (response.status === 304) return null;
-  if (!response.ok) return null;
-  const etag = response.headers.get("ETag") || "";
-  if (etag) lastManifestEtag = etag;
-  const data = await response.json().catch(() => null);
-  if (!data) return null;
-  return { data };
+  try {
+    const response = await fetch(
+      buildUrl(`/api/media/manifest?target=${encodeURIComponent(target)}${query}`),
+      { headers }
+    );
+    if (response.status === 304) return null;
+    if (!response.ok) throw new Error(`manifest_${response.status}`);
+    const etag = response.headers.get("ETag") || "";
+    if (etag) lastManifestEtag = etag;
+    const data = await response.json().catch(() => null);
+    if (!data) throw new Error("manifest_invalid");
+    try { localStorage.setItem(manifestStorageKey, JSON.stringify(data)); } catch (_error) {}
+    requestOfflineCache(data);
+    return { data };
+  } catch (_error) {
+    try {
+      const cached = JSON.parse(localStorage.getItem(manifestStorageKey) || "null");
+      return cached ? { data: cached, offline: true } : null;
+    } catch (_cacheError) {
+      return null;
+    }
+  }
 };
 
 const updatePlaylistFromManifest = (items = []) => {
@@ -403,13 +537,7 @@ const refreshManifest = async () => {
   const data = response.data;
   if (!data) return;
   const targetKey = normalizeTarget(target);
-  let items = [];
-  if (data.targets && data.targets[targetKey]?.items) {
-    items = data.targets[targetKey].items;
-  } else if (Array.isArray(data.items)) {
-    items = data.items;
-  }
-  const filtered = (items || []).filter((item) => itemMatchesTarget(item, targetKey));
+  const filtered = getManifestItems(data, targetKey);
   if (!playlist.length && filtered.length) {
     playlist = filtered;
     index = 0;
@@ -452,6 +580,10 @@ const scheduleSafetyTimeout = (durationSeconds) => {
 
 const waitForMediaReady = (element, kind) =>
   new Promise((resolve) => {
+    if (!element) {
+      resolve();
+      return;
+    }
     let settled = false;
     const finish = () => {
       if (settled) return;
@@ -464,9 +596,17 @@ const waitForMediaReady = (element, kind) =>
       finish();
     };
     if (kind === "image") {
+      if (element.complete && element.naturalWidth > 0) {
+        onReady();
+        return;
+      }
       element.addEventListener("load", onReady, { once: true });
       element.addEventListener("error", onReady, { once: true });
     } else {
+      if (element.readyState >= 2) {
+        onReady();
+        return;
+      }
       element.addEventListener("loadeddata", onReady, { once: true });
       element.addEventListener("canplay", onReady, { once: true });
       element.addEventListener("error", onReady, { once: true });
@@ -650,25 +790,28 @@ const setCarouselMode = (portraitMedia) => {
   carousel3d.classList.remove("portrait-carousel");
 };
 
-const waitForCenterReady = (element, kind) =>
-  new Promise((resolve) => {
-    if (!element) return resolve();
-    const done = () => resolve();
-    if (kind === "image") {
-      element.addEventListener("load", done, { once: true });
-      element.addEventListener("error", done, { once: true });
-      return;
-    }
-    element.addEventListener("loadedmetadata", done, { once: true });
-    element.addEventListener("error", done, { once: true });
-  });
+const getMediaAspectRatio = (item, element) => {
+  const itemWidth = Number(item?.width || 0);
+  const itemHeight = Number(item?.height || 0);
+  if (itemWidth > 0 && itemHeight > 0) return itemWidth / itemHeight;
+  if (element?.tagName === "IMG" && element.naturalWidth && element.naturalHeight) {
+    return element.naturalWidth / element.naturalHeight;
+  }
+  if (element?.tagName === "VIDEO" && element.videoWidth && element.videoHeight) {
+    return element.videoWidth / element.videoHeight;
+  }
+  return 9 / 16;
+};
 
-const depthClassForIndex = (index) => {
-  if (index === 0) return "depth-front";
-  if (index === 1 || index === 7) return "depth-near";
-  if (index === 2 || index === 6) return "depth-mid";
-  if (index === 3 || index === 5) return "depth-far";
-  return "depth-back";
+const fitMediaWithin = (ratio, maxWidth, maxHeight) => {
+  const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 9 / 16;
+  let width = Math.min(maxWidth, maxHeight * safeRatio);
+  let height = width / safeRatio;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * safeRatio;
+  }
+  return { width: Math.max(1, width), height: Math.max(1, height) };
 };
 
 const applyLandscapeRingRadius = () => {
@@ -678,10 +821,39 @@ const applyLandscapeRingRadius = () => {
   if (faces.length < 3) return;
 
   const centerFace = faces.find((face) => face.dataset.faceIndex === "0") || faces[0];
+  const rightFace = faces.find((face) => face.dataset.faceIndex === "1");
+  const leftFace = faces.find((face) => face.dataset.faceIndex === "7");
   const centerMedia = centerFace?.querySelector("img,video");
-  const fallbackWidth = stage?.clientWidth || window.innerWidth || 1280;
-  const posterWidth = Math.max(1, Math.round(centerMedia?.clientWidth || fallbackWidth * 0.35));
-  const spacing = posterWidth * 0.72;
+  const rightMedia = rightFace?.querySelector("img,video");
+  const leftMedia = leftFace?.querySelector("img,video");
+  if (!centerMedia || !rightMedia || !leftMedia) return;
+
+  const stageWidth = Math.max(320, stage?.clientWidth || window.innerWidth || 1280);
+  const stageHeight = Math.max(240, stage?.clientHeight || window.innerHeight || 720);
+  const edgeTarget = Math.max(20, Math.min(64, stageWidth * 0.025));
+  const verticalEdge = Math.max(12, Math.min(32, stageHeight * 0.025));
+  const centerRatio = getMediaAspectRatio(playlist[index], centerMedia);
+
+  const centerSize = fitMediaWithin(
+    centerRatio,
+    stageWidth * 0.48,
+    stageHeight - verticalEdge * 2
+  );
+  const halfSideCapacity = Math.max(
+    1,
+    stageWidth / 2 - centerSize.width / 2 - edgeTarget * 2
+  );
+  const twinAspectRatio = 9 / 16;
+  const desiredTwinHeight = centerSize.height * 0.7;
+  const desiredTwinWidth = desiredTwinHeight * twinAspectRatio;
+  const twinScale = Math.min(1, halfSideCapacity / desiredTwinWidth);
+  const commonSideWidth = Math.max(1, desiredTwinWidth * twinScale);
+  const commonSideHeight = Math.max(1, desiredTwinHeight * twinScale);
+  const equalGap = Math.max(
+    0,
+    (stageWidth - centerSize.width - commonSideWidth * 2) / 4
+  );
+  const sideOffset = centerSize.width / 2 + equalGap + commonSideWidth / 2;
   const visible = new Set([0, 1, 7]);
 
   faces.forEach((face, idx) => {
@@ -691,41 +863,49 @@ const applyLandscapeRingRadius = () => {
       face.style.display = "none";
       face.style.opacity = "0";
       face.style.pointerEvents = "none";
+      face.setAttribute("aria-hidden", "true");
       return;
     }
 
     face.style.display = "flex";
     face.style.pointerEvents = "auto";
+    face.setAttribute("aria-hidden", "false");
 
     let offset = 0;
-    let scale = 1;
     let opacity = 1;
+    let width = centerSize.width;
+    let height = centerSize.height;
 
     if (idx === 0) {
-      offset = 0;
-      scale = 1;
-      opacity = 1;
       face.classList.add("depth-front");
     }
     if (idx === 1) {
-      offset = +spacing;
-      scale = 0.8;
-      opacity = 0.65;
+      offset = sideOffset;
+      width = commonSideWidth;
+      height = commonSideHeight;
+      opacity = 0.82;
       face.classList.add("depth-near");
     }
     if (idx === 7) {
-      offset = -spacing;
-      scale = 0.8;
-      opacity = 0.65;
+      offset = -sideOffset;
+      width = commonSideWidth;
+      height = commonSideHeight;
+      opacity = 0.82;
       face.classList.add("depth-near");
     }
 
     face.style.opacity = String(opacity);
-    face.style.transform = `translate(-50%, -50%) translateX(${offset}px) scale(${scale})`;
+    face.style.setProperty("--layout-width", `${Math.round(width)}px`);
+    face.style.setProperty("--layout-height", `${Math.round(height)}px`);
+    face.style.setProperty("--layout-offset-x", `${Math.round(offset)}px`);
+    face.style.transform = `translate(-50%, -50%) translateX(${Math.round(offset)}px)`;
   });
+  carousel3d?.classList.add("layout-responsive");
+  ringStage?.classList.add("layout-responsive-stage");
 };
 
 const renderRingFaces = async () => {
+  const renderToken = ++landscapeRenderToken;
   clearTimers();
   if (!playlist.length || !faces.length) return;
   const count = playlist.length;
@@ -739,27 +919,44 @@ const renderRingFaces = async () => {
     ? mountFace(centerFace, playlist[index], { preview: false, wait: false })
     : Promise.resolve({ kind: null, element: null });
 
+  const sideMounts = [];
   for (const face of faces) {
     const faceIndex = Number(face.dataset.faceIndex || 0);
     if (face === centerFace) continue;
-    const itemIndex = (index + faceIndex) % count;
-    mountFace(face, playlist[itemIndex], { preview: true, wait: false });
+    const itemIndex = faceIndex === 7
+      ? (index - 1 + count) % count
+      : (index + faceIndex) % count;
+    const mounted = mountFace(face, playlist[itemIndex], { preview: true, wait: false });
+    if (faceIndex === 1 || faceIndex === 7) sideMounts.push(mounted);
   }
 
-  applyLandscapeRingRadius();
-
   const { kind, element } = await centerMount;
-
-  await waitForCenterReady(element, kind);
+  const mountedSides = await Promise.all(sideMounts);
+  const mountedElements = [element, ...mountedSides.map((mounted) => mounted.element)].filter(Boolean);
+  const refreshMeasuredLayout = () => {
+    if (renderToken !== landscapeRenderToken || displayMode !== "landscape") return;
+    requestAnimationFrame(applyLandscapeRingRadius);
+  };
+  mountedElements.forEach((mediaElement) => {
+    mediaElement.addEventListener("load", refreshMeasuredLayout, { once: true });
+    mediaElement.addEventListener("loadedmetadata", refreshMeasuredLayout, { once: true });
+  });
+  await Promise.all([
+    waitForMediaReady(element, kind),
+    ...mountedSides.map(({ kind: sideKind, element: sideElement }) =>
+      waitForMediaReady(sideElement, sideKind)
+    ),
+  ]);
+  if (renderToken !== landscapeRenderToken) return;
   const portraitMedia = isPortraitMedia(playlist[index], element);
   setCarouselMode(portraitMedia);
+  requestAnimationFrame(() => {
+    if (renderToken !== landscapeRenderToken) return;
+    applyLandscapeRingRadius();
+  });
 
   if (element && element.tagName === "VIDEO") {
     element.play().catch(() => {});
-  }
-
-  if (element) {
-    await waitForMediaReady(element, kind);
   }
 
   if (kind === "image") {
@@ -930,25 +1127,31 @@ const startManifestSse = () => {
 };
 
 const init = async () => {
+  updateConnectionIndicator();
+  await registerOfflineWorker();
   orientation = getOrientation();
   updateScreenClass();
   updateSingleModeClass();
-  displayMode = orientation === "portrait" ? "portrait" : "landscape";
-  applyDisplayModeClass();
+  const savedRotation = readSavedRotation();
+  rotationManuallySelected = savedRotation !== null;
+  rotateDeg = savedRotation ?? (orientation === "portrait" ? 90 : 0);
+  applyRotationState();
   startBandwidthMonitor();
   startManifestSse();
   startManifestPolling();
   playlist = await loadCatalog();
   if (!playlist.length) return;
   index = 0;
-  if (displayMode === "portrait") {
-    renderPortraitLayers();
-  } else {
-    renderRingFaces();
-  }
+  renderSelectedOrientation();
   preloadItem(playlist[(index + 1) % playlist.length]);
   showControls({ restartTimer: true });
 };
+
+window.addEventListener("online", () => {
+  updateConnectionIndicator();
+  refreshManifest();
+});
+window.addEventListener("offline", updateConnectionIndicator);
 
 btnFullscreen?.addEventListener("click", () => {
   const elem = document.documentElement;
@@ -960,14 +1163,28 @@ btnFullscreen?.addEventListener("click", () => {
 });
 
 btnRotate?.addEventListener("click", () => {
-  if (displayMode !== "landscape") return;
-  renderRingFaces();
+  rotateDeg = (rotateDeg + 90) % 360;
+  rotationManuallySelected = true;
+  saveRotation();
+  applyRotationState();
+  renderSelectedOrientation();
+  showControls({ restartTimer: true });
 });
 btnNext?.addEventListener("click", nextItem);
 btnPrev?.addEventListener("click", prevItem);
 
 window.addEventListener("resize", debounce(updateScreenClass, 150));
 window.addEventListener("resize", debounce(updateOrientation, 150));
+window.addEventListener("resize", debounce(() => {
+  if (displayMode === "landscape") applyLandscapeRingRadius();
+}, 180));
+document.addEventListener("fullscreenchange", () => {
+  setTimeout(() => {
+    updateScreenClass();
+    updateOrientation();
+    if (displayMode === "landscape") applyLandscapeRingRadius();
+  }, 120);
+});
 window.addEventListener("keydown", () => showControls({ restartTimer: true }));
 window.addEventListener("click", () => showControls({ restartTimer: true }));
 window.addEventListener("touchstart", () => showControls({ restartTimer: true }), {
@@ -976,5 +1193,8 @@ window.addEventListener("touchstart", () => showControls({ restartTimer: true })
 window.addEventListener("orientationchange", () => {
   setTimeout(updateScreenClass, 200);
   setTimeout(updateOrientation, 200);
+  setTimeout(() => {
+    if (displayMode === "landscape") applyLandscapeRingRadius();
+  }, 250);
 });
 window.addEventListener("DOMContentLoaded", init);

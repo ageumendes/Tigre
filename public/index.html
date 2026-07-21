@@ -50,6 +50,18 @@
                 </label>
                 <button id="open-tv-overlay" type="button" class="ghost-button small">Gerenciar TVs</button>
               </div>
+              <div class="publication-options">
+                <label>
+                  Data de fim da reprodução
+                  <input id="media-end-date" type="date">
+                  <small>A mídia sai do ar às 00:00 desta data.</small>
+                </label>
+                <label class="permanent-option">
+                  <input id="media-permanent" type="checkbox">
+                  <span>Mídia permanente</span>
+                 <!--<p>(reproduzir quando não houver mídia temporária válida)</p>-->
+                </label>
+              </div>
               <label for="upload-input" class="upload-label">
                 <input id="upload-input" class="visually-hidden" type="file" accept="video/mp4,image/*" multiple>
                 <div class="upload-drop">
@@ -75,6 +87,40 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="card media-admin-card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Programação</p>
+            <h2>Gerenciar mídias publicadas</h2>
+          </div>
+          <button id="media-admin-reload" class="ghost-button">Recarregar</button>
+        </div>
+        <!--<div class="media-admin-toolbar">
+          <label>
+            Exibir
+            <select id="media-admin-filter" class="ghost-select">
+              <option value="all">Todas</option>
+              <option value="temporary">Temporárias</option>
+              <option value="permanent">Permanentes</option>
+              <option value="expired">Vencidas</option>
+              <option value="hidden">Desativadas</option>
+            </select>
+          </label>
+        </div>-->
+        <div id="media-admin-status" class="status">Informe a senha para carregar as mídias.</div>
+        <div id="media-admin-list" class="media-admin-list">
+          <div class="placeholder"><p>Nenhuma mídia carregada.</p></div>
+        </div>
+        <div class="transcode-admin">
+          <div class="transcode-admin-head">
+            <h3>Fila de processamento de vídeos</h3>
+            <button id="transcode-admin-reload" class="ghost-button small">Atualizar fila</button>
+          </div>
+          <div id="transcode-admin-status" class="status">Fila ainda não carregada.</div>
+          <div id="transcode-admin-list" class="transcode-admin-list"></div>
         </div>
       </section>
 

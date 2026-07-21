@@ -5,7 +5,7 @@ try {
   console.warn("dotenv não disponível; as variáveis deverão vir de outras fontes.");
 }
 const { execFile } = require("child_process");
-const { randomUUID, createHash } = require("crypto");
+const { randomUUID, createHash, timingSafeEqual } = require("crypto");
 const express = require("express");
 const compression = require("compression");
 const helmet = require("helmet");
@@ -17,6 +17,7 @@ const multer = require("multer");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { createStorage } = require("./storage");
 const OpenAI = require("openai");
 const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
 const ffmpegPath = (ffmpegInstaller && ffmpegInstaller.path) || "ffmpeg";
@@ -65,6 +66,10 @@ const statsFile = path.join(__dirname, "stats.json");
 const promosFile = path.join(__dirname, "promos.json");
 const mediaConfigFile = path.join(__dirname, "media-config.json");
 const tvConfigFile = path.join(__dirname, "tv-config.json");
+const transcodeQueueFile = path.join(mediaDir, "transcode-queue.json");
+const databasePath = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(mediaDir, "tv-media.sqlite");
 const publicDir = path.join(__dirname, "public");
 const pkg = require("./package.json");
 const APP_VERSION = process.env.APP_VERSION || pkg.version || "0.0.0";
@@ -86,6 +91,14 @@ const MAX_UPLOAD_MB = parseInt(process.env.MAX_UPLOAD_MB || "30", 10) || 30;
 const MAX_TRANSCODE_JOBS = Math.max(
   1,
   parseInt(process.env.MAX_TRANSCODE_JOBS || "1", 10) || 1
+);
+const MAX_TRANSCODE_ATTEMPTS = Math.max(
+  1,
+  parseInt(process.env.MAX_TRANSCODE_ATTEMPTS || "3", 10) || 3
+);
+const TRANSCODE_RETRY_BASE_MS = Math.max(
+  5000,
+  parseInt(process.env.TRANSCODE_RETRY_BASE_MS || "30000", 10) || 30000
 );
 const MAX_CAROUSEL_ITEMS = parseInt(process.env.MAX_CAROUSEL_ITEMS || "20", 10) || 20;
 const ALLOWED_MIME_TYPES = new Set([
@@ -404,12 +417,67 @@ ensureDir(publicDir);
 if (fs.existsSync(legacyRotatedMediaDir)) {
   ensureDir(legacyRotatedMediaDir);
 }
+const storage = createStorage({
+  dbPath: databasePath,
+  legacyFiles: {
+    media_config: mediaConfigFile,
+    tv_config: tvConfigFile,
+    promos: promosFile,
+    transcode_queue: transcodeQueueFile,
+    stats: statsFile,
+  },
+});
 
 // TVs configuráveis para Roku.
 
 const normalizeTarget = (value) => {
   const val = typeof value === "string" ? value.trim().toLowerCase() : "";
   return val || "todas";
+};
+const MEDIA_TIMEZONE = process.env.MEDIA_TIMEZONE || "America/La_Paz";
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const getLocalDateKey = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MEDIA_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+const normalizeEndDate = (value) => {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  if (!candidate) return "";
+  if (!DATE_ONLY_RE.test(candidate) || Number.isNaN(Date.parse(`${candidate}T00:00:00Z`))) {
+    return null;
+  }
+  return candidate;
+};
+const normalizePermanent = (value) =>
+  value === true || `${value || ""}`.toLowerCase() === "true" || `${value || ""}` === "1";
+const isMediaItemActive = (item, today = getLocalDateKey()) => {
+  if (!item || item.visivel === false) return false;
+  if (item.permanent === true) return true;
+  const endDate = normalizeEndDate(item.endDate);
+  return !endDate || today < endDate;
+};
+const interleaveMediaGroups = (temporary = [], permanent = []) => {
+  if (!temporary.length) return [...permanent];
+  if (!permanent.length) return [...temporary];
+  const mixed = [];
+  const maxLength = Math.max(temporary.length, permanent.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    if (index < temporary.length) mixed.push(temporary[index]);
+    if (index < permanent.length) mixed.push(permanent[index]);
+  }
+  return mixed;
+};
+const selectEligibleMedia = (items = [], today = getLocalDateKey()) => {
+  const visible = (items || []).filter((item) => isMediaItemActive(item, today));
+  const temporary = visible.filter((item) => item.permanent !== true);
+  const permanent = visible.filter((item) => item.permanent === true);
+  return interleaveMediaGroups(temporary, permanent);
 };
 const targetSuffix = (value) => {
   const normalized = normalizeTarget(value);
@@ -428,6 +496,8 @@ const normalizeItems = (items = []) =>
           ...item,
           target: normalizedTarget,
           visivel: ensureVisivelValue(item?.visivel, normalizedTarget),
+          permanent: item?.permanent === true,
+          endDate: item?.permanent === true ? "" : normalizeEndDate(item?.endDate) || "",
         };
       })
     : [];
@@ -2014,7 +2084,7 @@ const generateCatalogFromConfig = () => {
 const writeCatalog = () => {
   const catalog = generateCatalogFromConfig();
   try {
-    fs.writeFileSync(catalogFile, JSON.stringify(catalog, null, 2));
+    writeJsonAtomicSync(catalogFile, catalog);
   } catch (error) {
     console.error("Erro ao gravar catalog.json:", error.message);
   }
@@ -2177,15 +2247,6 @@ app.use(
 );
 app.use(requestLogger);
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
-  return next();
-});
-app.use((req, res, next) => {
   res.setHeader("X-Request-Id", req.id);
   metrics.requests_total += 1;
   res.on("finish", () => {
@@ -2227,32 +2288,23 @@ const normalizePlayerTarget = (value) => {
 const getPlayerTargets = () => {
   const targets = new Set(["todas"]);
   try {
-    if (fs.existsSync(tvConfigFile)) {
-      const raw = fs.readFileSync(tvConfigFile, "utf8");
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        parsed.forEach((item) => {
-          const rawTarget = item?.tipo || item?.nome || "";
-          const normalized = normalizePlayerTarget(rawTarget);
-          if (normalized) targets.add(normalized);
-        });
-      }
-    }
+    const parsed = storage.readDocument("tv_config", []);
+    if (Array.isArray(parsed)) parsed.forEach((item) => {
+      const normalized = normalizePlayerTarget(item?.tipo || item?.nome || "");
+      if (normalized) targets.add(normalized);
+    });
   } catch (error) {
-    console.warn("Erro ao ler tv-config.json para targets do player:", error.message);
+    console.warn("Erro ao ler TVs para targets do player:", error.message);
   }
   try {
-    if (fs.existsSync(mediaConfigFile)) {
-      const raw = fs.readFileSync(mediaConfigFile, "utf8");
-      const parsed = JSON.parse(raw);
-      const keys = parsed?.targets && typeof parsed.targets === "object" ? Object.keys(parsed.targets) : [];
-      keys.forEach((key) => {
-        const normalized = normalizePlayerTarget(key);
-        if (normalized) targets.add(normalized);
-      });
-    }
+    const parsed = storage.readDocument("media_config", { targets: {} });
+    const keys = parsed?.targets && typeof parsed.targets === "object" ? Object.keys(parsed.targets) : [];
+    keys.forEach((key) => {
+      const normalized = normalizePlayerTarget(key);
+      if (normalized) targets.add(normalized);
+    });
   } catch (error) {
-    console.warn("Erro ao ler media-config.json para targets do player:", error.message);
+    console.warn("Erro ao ler programação para targets do player:", error.message);
   }
   return targets;
 };
@@ -2324,22 +2376,45 @@ app.get("/config.js", (_req, res) => {
 });
 
 app.get("/media-config.json", async (req, res) => {
-  if (!fs.existsSync(mediaConfigFile)) {
-    return res.status(404).json({ ok: false, error: "media-config.json not found" });
-  }
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (!isRokuRequest(req)) {
-    return res.sendFile(mediaConfigFile);
-  }
   try {
-    const raw = await fs.promises.readFile(mediaConfigFile, "utf8");
-    const parsed = raw ? JSON.parse(raw) : {};
+    const parsed = readMediaConfig();
+    if (!isRokuRequest(req)) return res.json(parsed);
     const converted = await convertMediaConfigForRoku(parsed);
     return res.json(converted);
   } catch (error) {
-    console.warn("Falha ao adaptar media-config.json para Roku:", error.message);
-    return res.sendFile(mediaConfigFile);
+    console.warn("Falha ao entregar programação:", error.message);
+    return res.status(500).json({ ok: false, error: "MEDIA_CONFIG_UNAVAILABLE" });
+  }
+});
+
+// Entrega pública em JPEG para download/compartilhamento do portal cativo.
+app.get("/api/media/jpeg", async (req, res) => {
+  const requested = safeStr(req.query.path, 1024).split("?")[0];
+  if (!requested.startsWith("/media/") || !/\.(webp|jpe?g)$/i.test(requested)) {
+    return sendJsonError(res, 400, "INVALID_IMAGE_PATH", "Caminho de imagem inválido.");
+  }
+  let jpgPath = /\.jpe?g$/i.test(requested) ? requested : replaceExtPreserveQuery(requested, ".jpg");
+  let resolved = resolveMediaPath(jpgPath);
+  try {
+    if (!resolved || !fs.existsSync(resolved) || fs.statSync(resolved).size <= 0) {
+      const webpPath = /\.webp$/i.test(requested)
+        ? requested
+        : replaceExtPreserveQuery(requested, ".webp");
+      jpgPath = await ensureJpegFromWebpPath(webpPath);
+      resolved = resolveMediaPath(jpgPath);
+    }
+    if (!resolved || !/\.jpe?g$/i.test(resolved) || !fs.existsSync(resolved)) {
+      return sendJsonError(res, 404, "JPEG_NOT_FOUND", "Versão JPG indisponível.");
+    }
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Content-Disposition", `inline; filename="${safeBasename(path.basename(resolved))}"`);
+    return res.sendFile(resolved);
+  } catch (error) {
+    console.warn("Falha ao entregar JPEG:", error.message);
+    return sendJsonError(res, 500, "JPEG_DELIVERY_FAILED", "Não foi possível preparar o JPG.");
   }
 });
 
@@ -2409,13 +2484,9 @@ const findLatestFile = () => {
 
 const readStatsFromDisk = () => {
   try {
-    if (!fs.existsSync(statsFile)) return [];
-    const raw = fs.readFileSync(statsFile, "utf8");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return storage.readStats(MAX_STATS);
   } catch (error) {
-    console.warn("Erro ao ler stats.json:", error.message);
+    console.warn("Erro ao ler estatísticas do banco:", error.message);
     return [];
   }
 };
@@ -2426,6 +2497,7 @@ const initializeMediaBinaries = async () => {
 };
 
 let statsCache = readStatsFromDisk();
+let pendingStatsEvents = [];
 let statsFlushTimer = null;
 let statsFlushRunning = false;
 
@@ -2468,10 +2540,13 @@ const flushStatsToDisk = async () => {
   statsFlushRunning = true;
   const trimmed = statsCache.slice(-MAX_STATS);
   statsCache = trimmed;
+  const pending = pendingStatsEvents.splice(0);
   try {
-    await fs.promises.writeFile(statsFile, JSON.stringify(trimmed, null, 2));
+    storage.appendStats(pending);
+    storage.trimStats(MAX_STATS);
   } catch (error) {
-    console.error("Erro ao gravar stats.json:", error.message);
+    pendingStatsEvents = [...pending, ...pendingStatsEvents];
+    console.error("Erro ao gravar estatísticas no banco:", error.message);
   } finally {
     statsFlushRunning = false;
   }
@@ -2483,6 +2558,11 @@ const scheduleStatsFlush = () => {
 };
 
 const safeStr = (value, max = 256) => (typeof value === "string" ? value.slice(0, max) : "");
+const writeJsonAtomicSync = (filePath, value) => {
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), { mode: 0o600 });
+  fs.renameSync(tempPath, filePath);
+};
 const sendJsonError = (res, status, error, message) =>
   res.status(status).json({ ok: false, error, message });
 const DEVICE_KEYS = (process.env.DEVICE_KEYS || "")
@@ -2497,14 +2577,19 @@ const requireUploadAuth = (req, res, next) => {
   if (!secret) {
     return sendJsonError(res, 500, "UPLOAD_PASSWORD_MISSING", "Senha de upload não configurada no servidor.");
   }
-  if (provided !== secret) {
+  const expectedBuffer = Buffer.from(secret);
+  const providedBuffer = Buffer.from(typeof provided === "string" ? provided : "");
+  if (expectedBuffer.length !== providedBuffer.length || !timingSafeEqual(expectedBuffer, providedBuffer)) {
     return sendJsonError(res, 401, "UPLOAD_UNAUTHORIZED", "Senha inválida para upload.");
   }
   return next();
 };
 
 const requireDeviceKey = (req, res, next) => {
-  if (!DEVICE_KEYS.length) return next();
+  if (!DEVICE_KEYS.length) {
+    if (isProduction) return sendJsonError(res, 503, "DEVICE_KEYS_MISSING", "Chaves dos dispositivos não configuradas.");
+    return next();
+  }
   const provided = req.headers["x-device-key"];
   if (!provided) {
     return sendJsonError(res, 401, "DEVICE_KEY_MISSING", "Chave do dispositivo ausente.");
@@ -2559,10 +2644,7 @@ const enrichMediaItem = (item, fallbackUpdatedAt, fallbackTarget) => {
 
 const readMediaConfig = () => {
   try {
-    if (!fs.existsSync(mediaConfigFile)) return { targets: {} };
-    const raw = fs.readFileSync(mediaConfigFile, "utf8");
-    if (!raw) return { targets: {} };
-    const parsed = JSON.parse(raw);
+    const parsed = storage.readDocument("media_config", { targets: {} });
     if (!parsed || typeof parsed !== "object") return { targets: {} };
     const targetsRaw = parsed.targets || {};
     const targets = {};
@@ -2580,10 +2662,10 @@ const readMediaConfig = () => {
       targets,
       items: aggregate.items,
       mode: aggregate.mode,
-      updatedAt: Math.max(parsed.updatedAt || 0, getFileMtimeMs(mediaConfigFile)),
+      updatedAt: parsed.updatedAt || 0,
     };
   } catch (error) {
-    console.warn("Erro ao ler media-config.json:", error.message);
+    console.warn("Erro ao ler programação do banco:", error.message);
     return { targets: {} };
   }
 };
@@ -2591,7 +2673,7 @@ const readMediaConfig = () => {
 const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
   const target = normalizeTarget(requestedTarget);
   const config = readMediaConfig();
-  const configUpdatedAt = Math.max(config.updatedAt || 0, getFileMtimeMs(mediaConfigFile));
+  const configUpdatedAt = config.updatedAt || 0;
   const targetEntry = config.targets?.[target] || null;
   const globalEntry = config.targets?.todas || null;
   const shouldIncludeGlobal = target !== "todas" && includeGlobal;
@@ -2615,7 +2697,13 @@ const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
     unique.push(item);
   });
 
-  if (!unique.length) {
+  const eligible = selectEligibleMedia(unique);
+  const offlineFallbackItems = unique.filter(
+    (item) => item.permanent === true && item.visivel !== false
+  );
+
+  if (!eligible.length) {
+    if (combined.length) return null;
     const latest = findLatestFile();
     if (!latest) return null;
     const stats = fs.statSync(latest.fullPath);
@@ -2638,12 +2726,12 @@ const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
     entry = {
       target,
       mode: targetEntry?.mode || globalEntry?.mode || config.mode || "video",
-      items: unique,
+      items: eligible,
       updatedAt:
         Math.max(
           targetEntry?.updatedAt || 0,
           globalEntry?.updatedAt || 0,
-          ...unique.map((item) => item?.updatedAt || 0)
+          ...eligible.map((item) => item?.updatedAt || 0)
         ) || configUpdatedAt,
     };
   }
@@ -2653,6 +2741,7 @@ const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
     entry.items.reduce((max, item) => Math.max(max, item?.updatedAt || 0), 0) ||
     configUpdatedAt;
   const items = entry.items.map((item) => enrichMediaItem(item, updatedAt, target));
+  const offlineItems = offlineFallbackItems.map((item) => enrichMediaItem(item, updatedAt, target));
   const primary = items[0] || null;
   const manifestPayload = {
     ok: true,
@@ -2660,6 +2749,7 @@ const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
     mode: entry.mode || "video",
     updatedAt,
     items,
+    offlineItems,
     url: primary?.url,
     path: primary?.path,
     mime: primary?.mime,
@@ -2683,7 +2773,7 @@ const buildMediaManifestPayload = (requestedTarget, includeGlobal = true) => {
   };
 };
 
-const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
+const writeMediaConfig = (target, mode, items = [], replaceAll = false, publication = {}) => {
   const current = readMediaConfig();
   const normalizedTarget = normalizeTarget(target);
   const baseTargets = {};
@@ -2693,9 +2783,14 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
   });
   const nextTargets = replaceAll ? {} : { ...baseTargets };
   const safeItems = normalizeItems(items);
+  const previousItems = current.targets?.[normalizedTarget]?.items || [];
+  const publishingPermanent = publication.permanent === true;
+  const retainedItems = publication.mergePublication && !replaceAll
+    ? previousItems.filter((item) => (publishingPermanent ? item.permanent !== true : item.permanent === true))
+    : [];
   nextTargets[normalizedTarget] = {
     mode,
-    items: safeItems,
+    items: [...retainedItems, ...safeItems],
     target: normalizedTarget,
     updatedAt: Date.now(),
   };
@@ -2708,9 +2803,9 @@ const writeMediaConfig = (target, mode, items = [], replaceAll = false) => {
     updatedAt: Date.now(),
   };
   try {
-    fs.writeFileSync(mediaConfigFile, JSON.stringify(nextConfig, null, 2));
+    storage.writeDocument("media_config", nextConfig);
   } catch (error) {
-    console.error("Erro ao gravar media-config.json:", error.message);
+    console.error("Erro ao gravar programação no banco:", error.message);
     throw error;
   }
   writeCatalog();
@@ -2727,6 +2822,237 @@ const updateMediaItemInConfig = (target, itemId, updater) => {
     return updater(item) || item;
   });
   return writeMediaConfig(normalizedTarget, entry.mode || "video", updatedItems);
+};
+
+let persistentTranscodeJobs = [];
+const scheduledTranscodeJobIds = new Set();
+const transcodeRetryTimers = new Map();
+
+const readPersistentTranscodeJobs = () => {
+  try {
+    const parsed = storage.readDocument("transcode_queue", []);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("[transcode] fila inválida; iniciando vazia:", error.message);
+    return [];
+  }
+};
+
+const persistTranscodeJobs = () => {
+  storage.writeDocument("transcode_queue", persistentTranscodeJobs);
+};
+
+const resolveTranscodeInput = (job) => {
+  const resolved = path.resolve(mediaDir, job?.inputRelativePath || "");
+  const mediaRoot = `${path.resolve(mediaDir)}${path.sep}`;
+  if (!resolved.startsWith(mediaRoot)) return null;
+  return resolved;
+};
+
+const removeFileIfExists = (filePath) => {
+  try {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (_error) {}
+};
+
+const cleanupPartialTranscodeOutputs = (job) => {
+  const baseName = path.parse(job.fileName || "").name;
+  removeFileIfExists(path.join(normalizedDir, `${baseName}__landscape.mp4`));
+  removeFileIfExists(path.join(normalizedDir, `${baseName}__portrait.mp4`));
+  removeFileIfExists(path.join(posterDir, `${job.mediaId}_landscape.webp`));
+  removeFileIfExists(path.join(posterDir, `${job.mediaId}_portrait.webp`));
+  try {
+    fs.readdirSync(videoVariantsDir)
+      .filter((name) => name.startsWith(`${job.mediaId}__`))
+      .forEach((name) => removeFileIfExists(path.join(videoVariantsDir, name)));
+  } catch (_error) {}
+  const hlsJobDir = path.join(hlsDir, normalizeTarget(job.target), job.mediaId);
+  try {
+    if (fs.existsSync(hlsJobDir)) fs.rmSync(hlsJobDir, { recursive: true, force: true });
+  } catch (_error) {}
+};
+
+const applySuccessfulTranscode = (job, videoResult, inputPath) => {
+  const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
+  const portraitUrl = videoResult.portraitPath ? resolveRelativeMediaPath(videoResult.portraitPath) : "";
+  if (!landscapeUrl) throw new Error("Caminho de saída do vídeo inválido.");
+  if (videoResult?.normalized) removeFileIfExists(inputPath);
+  const updated = updateMediaItemInConfig(job.target, job.mediaId, (existing) => {
+    let updatedBase = existing;
+    try {
+      updatedBase = summarizeFile(landscapeUrl.replace("/media/", ""), job.target);
+    } catch (_error) {}
+    return {
+      ...updatedBase,
+      id: job.mediaId,
+      width: videoResult.width || null,
+      height: videoResult.height || null,
+      widthLandscape: videoResult.width || null,
+      heightLandscape: videoResult.height || null,
+      widthPortrait: videoResult.height || null,
+      heightPortrait: videoResult.width || null,
+      duration: videoResult.duration || null,
+      urlLandscape: landscapeUrl,
+      urlPortrait: portraitUrl || landscapeUrl,
+      mp4UrlLandscape: landscapeUrl,
+      mp4UrlPortrait: portraitUrl || "",
+      hlsMasterUrl: videoResult.hlsMasterUrlLandscape || videoResult.hlsMasterUrlPortrait || "",
+      hlsMasterUrlLandscape: videoResult.hlsMasterUrlLandscape || "",
+      hlsMasterUrlPortrait: videoResult.hlsMasterUrlPortrait || "",
+      posterUrlLandscape: videoResult.posterLandscape || "",
+      posterUrlPortrait: videoResult.posterPortrait || "",
+      variantsVideoLandscape: videoResult.variantsVideoLandscape || [],
+      variantsVideoPortrait: videoResult.variantsVideoPortrait || [],
+      normalized: videoResult.normalized !== false,
+      normalizationReason: videoResult.reason || "",
+      status: undefined,
+      transcodeAttempts: job.attempts,
+    };
+  });
+  if (!updated) throw new Error("Mídia removida antes da conclusão do processamento.");
+};
+
+const schedulePersistentTranscodeJob = (job, delayMs = 0) => {
+  if (!job || job.status === "failed") return;
+  const schedule = () => {
+    transcodeRetryTimers.delete(job.id);
+    if (scheduledTranscodeJobIds.has(job.id)) return;
+    scheduledTranscodeJobIds.add(job.id);
+    enqueueTranscode(() => runPersistentTranscodeJob(job.id))
+      .catch((error) => console.warn("[transcode] tarefa falhou:", error.message))
+      .finally(() => scheduledTranscodeJobIds.delete(job.id));
+  };
+  if (delayMs > 0) {
+    if (transcodeRetryTimers.has(job.id)) return;
+    const timer = setTimeout(schedule, delayMs);
+    transcodeRetryTimers.set(job.id, timer);
+  } else {
+    if (scheduledTranscodeJobIds.has(job.id)) return;
+    schedule();
+  }
+};
+
+const runPersistentTranscodeJob = async (jobId) => {
+  const job = persistentTranscodeJobs.find((entry) => entry.id === jobId);
+  if (!job || job.status === "failed") return;
+  if (!ffmpegAvailable || !ffprobeAvailable) {
+    await initializeMediaBinaries().catch(() => {});
+  }
+  if (!ffmpegAvailable || !ffprobeAvailable) {
+    const retryDelay = Math.max(TRANSCODE_RETRY_BASE_MS, 5 * 60 * 1000);
+    job.status = "retry_wait";
+    job.lastError = "FFmpeg ou FFprobe indisponível; aguardando nova verificação.";
+    job.nextAttemptAt = Date.now() + retryDelay;
+    job.updatedAt = Date.now();
+    persistTranscodeJobs();
+    schedulePersistentTranscodeJob(job, retryDelay);
+    return;
+  }
+  const inputPath = resolveTranscodeInput(job);
+  if (!inputPath || !fs.existsSync(inputPath)) {
+    job.status = "failed";
+    job.lastError = "Arquivo original não encontrado.";
+    job.updatedAt = Date.now();
+    persistTranscodeJobs();
+    updateMediaItemInConfig(job.target, job.mediaId, (item) => ({ ...item, status: "error", normalizationReason: "source_missing" }));
+    return;
+  }
+  job.status = "running";
+  job.attempts = (job.attempts || 0) + 1;
+  job.updatedAt = Date.now();
+  job.lastStartedAt = Date.now();
+  persistTranscodeJobs();
+  updateMediaItemInConfig(job.target, job.mediaId, (item) => ({
+    ...item,
+    status: "processing",
+    normalizationReason: job.attempts > 1 ? "retrying" : "processing",
+    transcodeAttempts: job.attempts,
+  }));
+  try {
+    if (job.attempts > 1) cleanupPartialTranscodeOutputs(job);
+    const result = await processVideoUploadHeavy(inputPath, job.fileName, job.target, job.mediaId);
+    if (!persistentTranscodeJobs.some((entry) => entry.id === job.id)) {
+      cleanupPartialTranscodeOutputs(job);
+      removeFileIfExists(inputPath);
+      return;
+    }
+    applySuccessfulTranscode(job, result, inputPath);
+    persistentTranscodeJobs = persistentTranscodeJobs.filter((entry) => entry.id !== job.id);
+    persistTranscodeJobs();
+    console.log(`[transcode] concluído ${job.mediaId} na tentativa ${job.attempts}.`);
+  } catch (error) {
+    job.lastError = safeStr(error?.message || "Falha no processamento.", 1000);
+    job.updatedAt = Date.now();
+    if (job.attempts >= (job.maxAttempts || MAX_TRANSCODE_ATTEMPTS)) {
+      job.status = "failed";
+      updateMediaItemInConfig(job.target, job.mediaId, (item) => ({
+        ...item,
+        status: "error",
+        normalizationReason: "processing_failed",
+        transcodeAttempts: job.attempts,
+      }));
+    } else {
+      const retryDelay = TRANSCODE_RETRY_BASE_MS * 2 ** Math.max(0, job.attempts - 1);
+      job.status = "retry_wait";
+      job.nextAttemptAt = Date.now() + retryDelay;
+      updateMediaItemInConfig(job.target, job.mediaId, (item) => ({
+        ...item,
+        status: "processing",
+        normalizationReason: "retry_scheduled",
+        transcodeAttempts: job.attempts,
+      }));
+      schedulePersistentTranscodeJob(job, retryDelay);
+    }
+    persistTranscodeJobs();
+    throw error;
+  }
+};
+
+const addPersistentTranscodeJob = ({ mediaId, target, fileName, inputPath }) => {
+  const inputRelativePath = path.relative(mediaDir, inputPath).replace(/\\/g, "/");
+  const job = {
+    id: randomUUID(),
+    mediaId,
+    target: normalizeTarget(target),
+    fileName,
+    inputRelativePath,
+    status: "pending",
+    attempts: 0,
+    maxAttempts: MAX_TRANSCODE_ATTEMPTS,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    lastError: "",
+  };
+  persistentTranscodeJobs.push(job);
+  persistTranscodeJobs();
+  schedulePersistentTranscodeJob(job);
+  return job;
+};
+
+const recoverPersistentTranscodeJobs = () => {
+  persistentTranscodeJobs = readPersistentTranscodeJobs();
+  const now = Date.now();
+  persistentTranscodeJobs.forEach((job) => {
+    if (job.status === "failed") return;
+    if (job.status === "running") job.status = "pending";
+    const delay = job.nextAttemptAt && job.nextAttemptAt > now ? job.nextAttemptAt - now : 0;
+    schedulePersistentTranscodeJob(job, delay);
+  });
+  persistTranscodeJobs();
+  if (persistentTranscodeJobs.length) {
+    console.log(`[transcode] ${persistentTranscodeJobs.length} tarefa(s) recuperada(s).`);
+  }
+};
+
+const cancelPersistentTranscodeForMedia = (mediaId) => {
+  const jobs = persistentTranscodeJobs.filter((job) => job.mediaId === mediaId);
+  jobs.forEach((job) => {
+    const timer = transcodeRetryTimers.get(job.id);
+    if (timer) clearTimeout(timer);
+    transcodeRetryTimers.delete(job.id);
+  });
+  persistentTranscodeJobs = persistentTranscodeJobs.filter((job) => job.mediaId !== mediaId);
+  persistTranscodeJobs();
 };
 
 const setWeatherTargetVisibility = (visible) => {
@@ -2820,13 +3146,10 @@ const resolvePublicBaseUrl = (req) => {
 // TVs configuráveis para Roku
 const readTvConfig = () => {
   try {
-    if (!fs.existsSync(tvConfigFile)) return [];
-    const raw = fs.readFileSync(tvConfigFile, "utf8");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = storage.readDocument("tv_config", []);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.warn("Erro ao ler tv-config.json:", error.message);
+    console.warn("Erro ao ler TVs do banco:", error.message);
     return [];
   }
 };
@@ -2834,9 +3157,9 @@ const readTvConfig = () => {
 const writeTvConfig = (tvs) => {
   const safe = Array.isArray(tvs) ? tvs : [];
   try {
-    fs.writeFileSync(tvConfigFile, JSON.stringify(safe, null, 2));
+    storage.writeDocument("tv_config", safe);
   } catch (error) {
-    console.error("Erro ao gravar tv-config.json:", error.message);
+    console.error("Erro ao gravar TVs no banco:", error.message);
     throw error;
   }
   writeCatalog();
@@ -2880,9 +3203,14 @@ const summarizeFile = (fileName, target = "todas") => {
 
 const cleanupKeeping = (keepList) => {
   const keepSet = new Set((keepList || []).filter(Boolean));
+  keepSet.add(path.basename(transcodeQueueFile));
+  keepSet.add(path.basename(databasePath));
+  keepSet.add(`${path.basename(databasePath)}-wal`);
+  keepSet.add(`${path.basename(databasePath)}-shm`);
   const keepDirSet = new Set();
   keepDirSet.add("hls");
   keepDirSet.add("latest");
+  keepDirSet.add("json-migration-backup");
 
   // Segurança: nunca tocar arquivos fora do mediaDir.
   const toRel = (absPath) => {
@@ -3016,13 +3344,10 @@ const touchCache = async (key, refresher) => {
 
 const readPromos = () => {
   try {
-    if (!fs.existsSync(promosFile)) return [];
-    const raw = fs.readFileSync(promosFile, "utf8");
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = storage.readDocument("promos", []);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.warn("Erro ao ler promos.json:", error.message);
+    console.warn("Erro ao ler promoções do banco:", error.message);
     return [];
   }
 };
@@ -3030,9 +3355,9 @@ const readPromos = () => {
 const writePromos = (promos) => {
   const trimmed = promos.slice(-MAX_PROMOS);
   try {
-    fs.writeFileSync(promosFile, JSON.stringify(trimmed, null, 2));
+    storage.writeDocument("promos", trimmed);
   } catch (error) {
-    console.error("Erro ao gravar promos.json:", error.message);
+    console.error("Erro ao gravar promoções no banco:", error.message);
     throw error;
   }
   return trimmed;
@@ -4100,7 +4425,7 @@ app.get("/api/catalog", (req, res) => {
   const combined = target === "todas" ? baseItems : [...baseItems, ...globalItems];
   const unique = [];
   const seen = new Set();
-  combined.forEach((item) => {
+  selectEligibleMedia(combined).forEach((item) => {
     const id = item?.id || buildItemId(item);
     if (seen.has(id)) return;
     seen.add(id);
@@ -4120,6 +4445,115 @@ app.get("/api/catalog", (req, res) => {
   });
 });
 
+const getAdminMediaList = () => {
+  const config = readMediaConfig();
+  const today = getLocalDateKey();
+  const rows = [];
+  Object.entries(config.targets || {}).forEach(([target, entry]) => {
+    (entry?.items || []).forEach((item) => {
+      const id = buildItemId(item);
+      const expired = item.permanent !== true && !!item.endDate && today >= item.endDate;
+      rows.push({
+        ...item,
+        id,
+        target,
+        mode: entry?.mode || "video",
+        permanent: item.permanent === true,
+        endDate: item.endDate || "",
+        expired,
+        active: isMediaItemActive(item, today),
+        name: path.basename((item.path || item.mp4UrlLandscape || item.posterUrlLandscape || id).split("?")[0]),
+      });
+    });
+  });
+  return rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+};
+
+app.get("/api/admin/media", restrictedCors, requireUploadAuth, (_req, res) => {
+  return res.json({ ok: true, timezone: MEDIA_TIMEZONE, items: getAdminMediaList() });
+});
+
+app.get("/api/admin/transcodes", restrictedCors, requireUploadAuth, (_req, res) => {
+  const jobs = persistentTranscodeJobs.map((job) => ({
+    id: job.id,
+    mediaId: job.mediaId,
+    target: job.target,
+    fileName: job.fileName,
+    status: job.status,
+    attempts: job.attempts || 0,
+    maxAttempts: job.maxAttempts || MAX_TRANSCODE_ATTEMPTS,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    nextAttemptAt: job.nextAttemptAt || null,
+    lastError: job.lastError || "",
+  }));
+  return res.json({ ok: true, running: transcodeRunning, queued: transcodeQueue.length, jobs });
+});
+
+app.post("/api/admin/transcodes/:id/retry", restrictedCors, requireUploadAuth, (req, res) => {
+  const job = persistentTranscodeJobs.find((entry) => entry.id === req.params.id);
+  if (!job) return sendJsonError(res, 404, "TRANSCODE_NOT_FOUND", "Tarefa não encontrada.");
+  const timer = transcodeRetryTimers.get(job.id);
+  if (timer) clearTimeout(timer);
+  transcodeRetryTimers.delete(job.id);
+  cleanupPartialTranscodeOutputs(job);
+  job.status = "pending";
+  job.attempts = 0;
+  job.nextAttemptAt = null;
+  job.lastError = "";
+  job.updatedAt = Date.now();
+  persistTranscodeJobs();
+  updateMediaItemInConfig(job.target, job.mediaId, (item) => ({ ...item, status: "processing", normalizationReason: "manual_retry" }));
+  schedulePersistentTranscodeJob(job);
+  return res.json({ ok: true });
+});
+
+app.patch("/api/admin/media/:target/:id", restrictedCors, requireUploadAuth, (req, res) => {
+  const target = normalizeTarget(req.params.target);
+  const config = readMediaConfig();
+  const entry = config.targets?.[target];
+  if (!entry) return sendJsonError(res, 404, "MEDIA_NOT_FOUND", "Mídia não encontrada.");
+  const index = (entry.items || []).findIndex((item) => buildItemId(item) === req.params.id);
+  if (index < 0) return sendJsonError(res, 404, "MEDIA_NOT_FOUND", "Mídia não encontrada.");
+
+  const current = entry.items[index];
+  const permanent = req.body?.permanent == null ? current.permanent === true : normalizePermanent(req.body.permanent);
+  const endDate = req.body?.endDate == null ? current.endDate || "" : normalizeEndDate(req.body.endDate);
+  if (!permanent && endDate === null) {
+    return sendJsonError(res, 400, "INVALID_END_DATE", "Data final inválida.");
+  }
+  const visivel = req.body?.visivel == null ? current.visivel !== false : normalizePermanent(req.body.visivel);
+  const updatedItems = [...entry.items];
+  updatedItems[index] = {
+    ...current,
+    id: buildItemId(current),
+    permanent,
+    endDate: permanent ? "" : endDate || "",
+    visivel,
+    metadataUpdatedAt: Date.now(),
+  };
+  writeMediaConfig(target, entry.mode || "video", updatedItems);
+  return res.json({
+    ok: true,
+    item: getAdminMediaList().find((item) => item.target === target && item.id === req.params.id),
+  });
+});
+
+app.delete("/api/admin/media/:target/:id", restrictedCors, requireUploadAuth, (req, res) => {
+  const target = normalizeTarget(req.params.target);
+  const config = readMediaConfig();
+  const entry = config.targets?.[target];
+  if (!entry) return sendJsonError(res, 404, "MEDIA_NOT_FOUND", "Mídia não encontrada.");
+  const updatedItems = (entry.items || []).filter((item) => buildItemId(item) !== req.params.id);
+  if (updatedItems.length === (entry.items || []).length) {
+    return sendJsonError(res, 404, "MEDIA_NOT_FOUND", "Mídia não encontrada.");
+  }
+  cancelPersistentTranscodeForMedia(req.params.id);
+  const nextConfig = writeMediaConfig(target, entry.mode || "video", updatedItems);
+  cleanupKeeping(collectReferencedFilenames(nextConfig.items || []));
+  return res.json({ ok: true });
+});
+
 app.post(
   "/api/upload",
   restrictedCors,
@@ -4137,6 +4571,12 @@ app.post(
   const isImage = isImageExt(ext);
   const mode = isVideo ? "video" : "image";
   const target = normalizeTarget(req.body?.target);
+  const permanent = normalizePermanent(req.body?.permanent);
+  const endDate = normalizeEndDate(req.body?.endDate);
+  if (!permanent && endDate === null) {
+    try { fs.unlinkSync(req.file.path); } catch (_error) {}
+    return sendJsonError(res, 400, "INVALID_END_DATE", "Data final inválida.");
+  }
 
   const tmpPath = req.file.path;
   if (!ALLOWED_EXT.includes(ext) || !ALLOWED_MIME_TYPES.has(mime)) {
@@ -4168,6 +4608,7 @@ app.post(
   }
 
   let item = null;
+  let pendingTranscodeJob = null;
   if (isVideo) {
     const mediaId = `${slugifyId(path.parse(finalName).name)}-${Date.now()}`;
     const baseItem = summarizeFile(finalName, target);
@@ -4191,74 +4632,7 @@ app.post(
     if (ffprobeAvailable && ffmpegAvailable) {
       item.status = "processing";
       item.normalizationReason = "processing";
-      enqueueTranscode(async () => {
-        let videoResult = null;
-        try {
-          videoResult = await processVideoUploadHeavy(finalPath, finalName, target, mediaId);
-        } catch (error) {
-          console.error("Erro ao normalizar vídeo enviado:", error.message);
-          updateMediaItemInConfig(target, mediaId, (existing) => ({
-            ...existing,
-            status: "error",
-            normalizationReason: "processing_failed",
-          }));
-          return;
-        }
-
-        const landscapeUrl = resolveRelativeMediaPath(videoResult.landscapePath);
-        const portraitUrl = videoResult.portraitPath
-          ? resolveRelativeMediaPath(videoResult.portraitPath)
-          : "";
-        if (!landscapeUrl) {
-          updateMediaItemInConfig(target, mediaId, (existing) => ({
-            ...existing,
-            status: "error",
-            normalizationReason: "invalid_path",
-          }));
-          return;
-        }
-        if (videoResult?.normalized) {
-          try {
-            fs.unlinkSync(finalPath);
-          } catch (_error) {}
-        }
-        updateMediaItemInConfig(target, mediaId, (existing) => {
-          let updatedBase = existing;
-          try {
-            updatedBase = summarizeFile(landscapeUrl.replace("/media/", ""), target);
-          } catch (_error) {}
-          return {
-            ...updatedBase,
-            id: mediaId,
-            width: videoResult.width || null,
-            height: videoResult.height || null,
-            widthLandscape: videoResult.width || null,
-            heightLandscape: videoResult.height || null,
-            widthPortrait: videoResult.height || null,
-            heightPortrait: videoResult.width || null,
-            duration: videoResult.duration || null,
-            urlLandscape: landscapeUrl,
-            urlPortrait: portraitUrl || landscapeUrl,
-            mp4UrlLandscape: landscapeUrl,
-            mp4UrlPortrait: portraitUrl || "",
-            hlsMasterUrl:
-              videoResult.hlsMasterUrlLandscape ||
-              videoResult.hlsMasterUrlPortrait ||
-              "",
-            hlsMasterUrlLandscape: videoResult.hlsMasterUrlLandscape || "",
-            hlsMasterUrlPortrait: videoResult.hlsMasterUrlPortrait || "",
-            posterUrlLandscape: videoResult.posterLandscape || "",
-            posterUrlPortrait: videoResult.posterPortrait || "",
-            variantsVideoLandscape: videoResult.variantsVideoLandscape || [],
-            variantsVideoPortrait: videoResult.variantsVideoPortrait || [],
-            normalized: videoResult.normalized !== false,
-            normalizationReason: videoResult.reason || "",
-            status: undefined,
-          };
-        });
-      }).catch((error) => {
-        console.warn("Fila de transcode falhou:", error.message);
-      });
+      pendingTranscodeJob = { mediaId, target, fileName: finalName, inputPath: finalPath };
     } else {
       item.normalizationReason = !ffprobeAvailable ? "ffprobe_missing" : "ffmpeg_missing";
     }
@@ -4322,9 +4696,20 @@ app.post(
   }
 
   const items = [item];
+  items.forEach((mediaItem) => {
+    mediaItem.permanent = permanent;
+    mediaItem.endDate = permanent ? "" : endDate || "";
+  });
   const targetItems = items;
+  const previousTargetItems = readMediaConfig().targets?.[target]?.items || [];
+  const replacedMediaIds = previousTargetItems
+    .filter((existing) => (permanent ? existing.permanent === true : existing.permanent !== true))
+    .map((existing) => buildItemId(existing));
   try {
-    const baseConfig = writeMediaConfig(target, mode, targetItems, target === "todas");
+    const baseConfig = writeMediaConfig(target, mode, targetItems, false, {
+      mergePublication: true,
+      permanent,
+    });
     const catalog = readCatalog();
     const catalogItems = catalog
       ? Object.values(catalog.targets || {}).flatMap((entry) => entry.items || [])
@@ -4334,6 +4719,8 @@ app.post(
       ...catalogItems,
     ]);
     cleanupKeeping(keepMediaFiles);
+    replacedMediaIds.forEach((mediaId) => cancelPersistentTranscodeForMedia(mediaId));
+    if (pendingTranscodeJob) addPersistentTranscodeJob(pendingTranscodeJob);
   } catch (error) {
     return sendJsonError(
       res,
@@ -4388,6 +4775,12 @@ app.post(
   }
 
   const target = normalizeTarget(req.body?.target);
+  const permanent = normalizePermanent(req.body?.permanent);
+  const endDate = normalizeEndDate(req.body?.endDate);
+  if (!permanent && endDate === null) {
+    files.forEach((file) => { try { fs.unlinkSync(file.path); } catch (_error) {} });
+    return sendJsonError(res, 400, "INVALID_END_DATE", "Data final inválida.");
+  }
   const items = [];
   for (const file of files) {
     let finalPath = null;
@@ -4439,6 +4832,8 @@ app.post(
         console.log("[carousel] portrait variants:", (item.variantsPortrait || []).map((v) => v.path));
         console.log("[carousel] portrait sample exists:", exists);
       }
+      item.permanent = permanent;
+      item.endDate = permanent ? "" : endDate || "";
       items.push(item);
     } catch (error) {
       console.error("Erro ao processar imagem do carrossel:", error.message);
@@ -4459,10 +4854,18 @@ app.post(
       }
     }
   }
+  const previousCarouselTargetItems = readMediaConfig().targets?.[target]?.items || [];
+  const replacedCarouselMediaIds = previousCarouselTargetItems
+    .filter((existing) => (permanent ? existing.permanent === true : existing.permanent !== true))
+    .map((existing) => buildItemId(existing));
   try {
-    const nextConfig = writeMediaConfig(target, "carousel", items, target === "todas");
+    const nextConfig = writeMediaConfig(target, "carousel", items, false, {
+      mergePublication: true,
+      permanent,
+    });
     const keepMediaFiles = collectReferencedFilenames(nextConfig.items);
     cleanupKeeping(keepMediaFiles);
+    replacedCarouselMediaIds.forEach((mediaId) => cancelPersistentTranscodeForMedia(mediaId));
   } catch (error) {
     return sendJsonError(
       res,
@@ -4506,7 +4909,7 @@ app.get("/api/promos/:id", (req, res) => {
   return res.json({ ok: true, promo });
 });
 
-app.post("/api/promos", (req, res) => {
+app.post("/api/promos", requireUploadAuth, (req, res) => {
   const payload = normalizePromoPayload(req.body);
   if (!payload.title) return res.status(400).json({ ok: false, message: "Título é obrigatório." });
   const now = Date.now();
@@ -4526,7 +4929,7 @@ app.post("/api/promos", (req, res) => {
   }
 });
 
-app.put("/api/promos/:id", (req, res) => {
+app.put("/api/promos/:id", requireUploadAuth, (req, res) => {
   const payload = normalizePromoPayload(req.body);
   const promos = readPromos();
   const index = promos.findIndex((p) => p.id === req.params.id);
@@ -4547,7 +4950,7 @@ app.put("/api/promos/:id", (req, res) => {
   }
 });
 
-app.delete("/api/promos/:id", (req, res) => {
+app.delete("/api/promos/:id", requireUploadAuth, (req, res) => {
   const promos = readPromos();
   const next = promos.filter((p) => p.id !== req.params.id);
   if (next.length === promos.length) {
@@ -4563,6 +4966,45 @@ app.delete("/api/promos/:id", (req, res) => {
 });
 
 // Registro de eventos simples para dashboard.
+const EVENT_DEDUP_WINDOWS_MS = {
+  connect_clicked: 30 * 1000,
+  auth_redirect: 30 * 1000,
+  video_started: 3 * 1000,
+  video_completed: 3 * 1000,
+  download_clicked: 2 * 1000,
+  share_clicked: 2 * 1000,
+};
+
+const getStatsDeviceKey = (event = {}) =>
+  safeStr(event.clientMac, 64).toUpperCase() ||
+  safeStr(event.clientIp, 64) ||
+  safeStr(event.userAgent, 160);
+
+const getStatsEventKey = (event = {}) => {
+  const device = getStatsDeviceKey(event);
+  if (!device) return "";
+  return `${event.type || "unknown"}|${device}|${safeStr(event.ssid, 160)}`;
+};
+
+const deduplicateStatsEvents = (events = []) => {
+  const ordered = (Array.isArray(events) ? events : [])
+    .filter((event) => event && Number.isFinite(Number(event.timestamp)))
+    .slice()
+    .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+  const accepted = [];
+  const lastSeen = new Map();
+  for (const event of ordered) {
+    const key = getStatsEventKey(event);
+    const timestamp = Number(event.timestamp);
+    const windowMs = EVENT_DEDUP_WINDOWS_MS[event.type] || 1000;
+    const previous = key ? lastSeen.get(key) : null;
+    if (previous !== undefined && previous !== null && timestamp - previous < windowMs) continue;
+    if (key) lastSeen.set(key, timestamp);
+    accepted.push(event);
+  }
+  return accepted;
+};
+
 app.post("/api/stats/event", requireDeviceKey, (req, res) => {
   const { type, clientMac, clientIp, ssid, userAgent } = req.body || {};
   if (!SUPPORTED_EVENT_TYPES.has(type)) {
@@ -4572,7 +5014,7 @@ app.post("/api/stats/event", requireDeviceKey, (req, res) => {
   const event = {
     timestamp: Date.now(),
     type,
-    clientMac: safeStr(clientMac),
+    clientMac: safeStr(clientMac, 64).toUpperCase(),
     clientIp: safeStr(clientIp),
     ssid: safeStr(ssid),
     userAgent: safeStr(userAgent || req.headers["user-agent"] || ""),
@@ -4580,7 +5022,16 @@ app.post("/api/stats/event", requireDeviceKey, (req, res) => {
 
   try {
     if (!Array.isArray(statsCache)) statsCache = [];
+    const eventKey = getStatsEventKey(event);
+    const windowMs = EVENT_DEDUP_WINDOWS_MS[event.type] || 1000;
+    const duplicate = eventKey && statsCache.slice(-200).reverse().some((existing) =>
+      getStatsEventKey(existing) === eventKey &&
+      event.timestamp - Number(existing.timestamp || 0) >= 0 &&
+      event.timestamp - Number(existing.timestamp || 0) < windowMs
+    );
+    if (duplicate) return res.json({ ok: true, deduplicated: true });
     statsCache.push(event);
+    pendingStatsEvents.push(event);
     if (statsCache.length > MAX_STATS * 2) {
       statsCache = statsCache.slice(-MAX_STATS);
     }
@@ -4592,106 +5043,143 @@ app.post("/api/stats/event", requireDeviceKey, (req, res) => {
   }
 });
 
-app.get("/api/stats/summary", (_req, res) => {
-  const events = getStatsSnapshot();
+app.get("/api/stats/summary", requireUploadAuth, (req, res) => {
+  const requestedDays = parseInt(req.query.days, 10);
+  const periodDays = requestedDays === 30 ? 30 : 7;
+  const rawEvents = getStatsSnapshot();
+  const deduplicatedEvents = deduplicateStatsEvents(rawEvents);
+  const oldestDayKey = getLocalDateKey(new Date(Date.now() - (periodDays - 1) * 86400000));
+  const events = deduplicatedEvents.filter((event) => getLocalDateKey(new Date(event.timestamp)) >= oldestDayKey);
   const summary = {
     totalEvents: events.length,
+    totalRawEvents: rawEvents.length,
+    duplicatesRemoved: rawEvents.length - deduplicatedEvents.length,
+    periodDays,
+    uniqueDevices: 0,
+    totalSessions: 0,
     totalVideoStarted: 0,
     totalVideoCompleted: 0,
     totalConnectClicked: 0,
     totalAuthRedirect: 0,
     totalDownloadClicked: 0,
     totalShareClicked: 0,
+    completionRate: 0,
+    connectionRate: 0,
     bySsid: {},
     byDay: {},
+    byDayViews: {},
+    byDayConnections: {},
+    byType: {},
   };
 
-  const days = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
+  for (let i = periodDays - 1; i >= 0; i -= 1) {
+    const key = getLocalDateKey(new Date(Date.now() - i * 86400000));
     summary.byDay[key] = 0;
-    days.push(key);
+    summary.byDayViews[key] = 0;
+    summary.byDayConnections[key] = 0;
   }
-  const minDay = new Date(today);
-  minDay.setDate(today.getDate() - 6);
-  const minTimestamp = minDay.getTime();
+
+  const devices = new Set();
+  const connectedDevices = new Set();
+  const releasedDevices = new Set();
+  const lastSessionByDevice = new Map();
 
   for (const event of events) {
+    const deviceKey = getStatsDeviceKey(event);
+    if (deviceKey) {
+      devices.add(deviceKey);
+      const lastTimestamp = lastSessionByDevice.get(deviceKey) || 0;
+      if (!lastTimestamp || event.timestamp - lastTimestamp > 30 * 60 * 1000) {
+        summary.totalSessions += 1;
+      }
+      lastSessionByDevice.set(deviceKey, event.timestamp);
+    }
     if (event.type === "video_started") summary.totalVideoStarted += 1;
     if (event.type === "video_completed") summary.totalVideoCompleted += 1;
-    if (event.type === "connect_clicked") summary.totalConnectClicked += 1;
-    if (event.type === "auth_redirect") summary.totalAuthRedirect += 1;
+    if (event.type === "connect_clicked") {
+      summary.totalConnectClicked += 1;
+      if (deviceKey) connectedDevices.add(deviceKey);
+      const ssidKey = event.ssid || "desconhecido";
+      summary.bySsid[ssidKey] = (summary.bySsid[ssidKey] || 0) + 1;
+    }
+    if (event.type === "auth_redirect") {
+      summary.totalAuthRedirect += 1;
+      if (deviceKey) releasedDevices.add(deviceKey);
+    }
     if (event.type === "download_clicked") summary.totalDownloadClicked += 1;
     if (event.type === "share_clicked") summary.totalShareClicked += 1;
+    summary.byType[event.type] = (summary.byType[event.type] || 0) + 1;
 
-    const ssidKey = event.ssid || "desconhecido";
-    summary.bySsid[ssidKey] = (summary.bySsid[ssidKey] || 0) + 1;
-
-    if (event.timestamp >= minTimestamp) {
-      const dayKey = formatDay(event.timestamp);
-      if (Object.prototype.hasOwnProperty.call(summary.byDay, dayKey)) {
-        summary.byDay[dayKey] += 1;
-      }
+    const dayKey = getLocalDateKey(new Date(event.timestamp));
+    if (Object.prototype.hasOwnProperty.call(summary.byDay, dayKey)) {
+      summary.byDay[dayKey] += 1;
+      if (event.type === "video_started") summary.byDayViews[dayKey] += 1;
+      if (event.type === "connect_clicked") summary.byDayConnections[dayKey] += 1;
     }
   }
+
+  summary.uniqueDevices = devices.size;
+  summary.uniqueConnectedDevices = connectedDevices.size;
+  summary.uniqueReleasedDevices = releasedDevices.size;
+  summary.completionRate = summary.totalVideoStarted
+    ? Number(Math.min(100, summary.totalVideoCompleted / summary.totalVideoStarted * 100).toFixed(1))
+    : 0;
+  summary.connectionRate = summary.totalConnectClicked
+    ? Number(Math.min(100, summary.totalAuthRedirect / summary.totalConnectClicked * 100).toFixed(1))
+    : 0;
 
   return res.json({ ok: true, ...summary });
 });
 
-app.get("/api/stats/recent", (req, res) => {
+app.get("/api/stats/recent", requireUploadAuth, (req, res) => {
   const requested = parseInt(req.query.limit, 10);
   const limit = Number.isFinite(requested) ? Math.min(MAX_STATS, Math.max(1, requested)) : 100;
-  const events = getStatsSnapshot();
+  const rawEvents = getStatsSnapshot();
+  const events = deduplicateStatsEvents(rawEvents);
   const recent = events.slice(-limit).reverse();
-  return res.json({ ok: true, events: recent });
+  return res.json({
+    ok: true,
+    events: recent,
+    duplicatesRemoved: rawEvents.length - events.length,
+  });
 });
 
 app.get("/healthz", (_req, res) => {
-  return res.json({ ok: true, uptime: process.uptime(), version: APP_VERSION });
+  return res.json({
+    ok: true,
+    uptime: process.uptime(),
+    version: APP_VERSION,
+    storage: "sqlite",
+  });
 });
 
 app.get("/readyz", (_req, res) => {
   let mediaDirOk = false;
-  let mediaConfigOk = true;
-  let tvConfigOk = true;
+  let databaseOk = false;
   try {
     mediaDirOk = fs.statSync(mediaDir).isDirectory();
   } catch (_error) {
     mediaDirOk = false;
   }
-  if (fs.existsSync(mediaConfigFile)) {
-    try {
-      fs.readFileSync(mediaConfigFile, "utf8");
-    } catch (_error) {
-      mediaConfigOk = false;
-    }
+  try {
+    databaseOk = storage.health().ok === true;
+  } catch (_error) {
+    databaseOk = false;
   }
-  if (fs.existsSync(tvConfigFile)) {
-    try {
-      fs.readFileSync(tvConfigFile, "utf8");
-    } catch (_error) {
-      tvConfigOk = false;
-    }
-  }
-
-  const ok = mediaDirOk && mediaConfigOk && tvConfigOk;
+  const ok = mediaDirOk && databaseOk;
   if (!ok) {
     return res.status(503).json({
       ok: false,
-      checks: { mediaDir: mediaDirOk, mediaConfig: mediaConfigOk, tvConfig: tvConfigOk },
+      checks: { mediaDir: mediaDirOk, database: databaseOk },
     });
   }
   return res.json({
     ok: true,
-    checks: { mediaDir: mediaDirOk, mediaConfig: mediaConfigOk, tvConfig: tvConfigOk },
+    checks: { mediaDir: mediaDirOk, database: databaseOk },
   });
 });
 
-app.get("/metrics.prom", (_req, res) => {
+app.get("/metrics.prom", requireUploadAuth, (_req, res) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   const lines = [
     `requests_total ${metrics.requests_total}`,
@@ -4703,7 +5191,7 @@ app.get("/metrics.prom", (_req, res) => {
   return res.send(`${lines.join("\n")}\n`);
 });
 
-app.get("/metrics", (_req, res) => {
+app.get("/metrics", requireUploadAuth, (_req, res) => {
   const memory = process.memoryUsage();
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -4725,28 +5213,8 @@ app.get("/metrics", (_req, res) => {
     },
     tvsConnected: Array.isArray(tvs) ? tvs.length : 0,
     plays: getTotalPlays(),
+    storage: { backend: "sqlite", healthy: storage.health().ok },
   });
-});
-
-app.get("/healthz", (_req, res) => {
-  return res.json({ ok: true, version: APP_VERSION });
-});
-
-app.get("/readyz", (_req, res) => {
-  const exists = fs.existsSync(mediaDir);
-  let writable = false;
-  if (exists) {
-    try {
-      fs.accessSync(mediaDir, fs.constants.W_OK);
-      writable = true;
-    } catch (_error) {
-      writable = false;
-    }
-  }
-  if (!exists || !writable) {
-    return res.status(503).json({ ok: false, reason: "mediaDir_not_writable" });
-  }
-  return res.json({ ok: true });
 });
 
 app.use((err, _req, res, _next) => {
@@ -4793,17 +5261,19 @@ const setupManifestWatchers = () => {
     }
   };
   safeWatch(catalogFile);
-  safeWatch(mediaConfigFile);
   safeWatch(mediaDir);
 };
 
 let server = null;
 const startServer = async () => {
   await ensureMediaBase(mediaDir);
+  try {
+    await initializeMediaBinaries();
+  } catch (error) {
+    console.warn("[ffmpeg] falha ao checar binários:", error.message);
+  }
+  recoverPersistentTranscodeJobs();
   server = app.listen(PORT, () => {
-    initializeMediaBinaries().catch((error) => {
-      console.warn("[ffmpeg] falha ao checar binários:", error.message);
-    });
     scheduleWeatherMediaRefresh();
     setupManifestWatchers();
     console.log(`Servidor rodando em http://localhost:${PORT}`);
@@ -4815,13 +5285,17 @@ const startServer = async () => {
 const shutdown = (signal) => {
   console.log(`[shutdown] recebendo ${signal}, encerrando servidor...`);
   if (!server) {
+    try { storage.close(); } catch (_error) {}
     process.exit(0);
     return;
   }
   server.close(() => {
     Promise.resolve(flushStatsToDisk())
       .catch(() => {})
-      .finally(() => process.exit(0));
+      .finally(() => {
+        try { storage.close(); } catch (_error) {}
+        process.exit(0);
+      });
   });
 };
 startServer().catch((error) => {

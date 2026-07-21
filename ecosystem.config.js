@@ -14,6 +14,7 @@ module.exports = {
         PORT: process.env.PORT || "3000",
         MEDIA_DIR: process.env.MEDIA_DIR || "/var/lib/tv-media/media",
         ENABLE_HLS: "true",
+        MEDIA_TIMEZONE: process.env.MEDIA_TIMEZONE || "America/La_Paz",
       },
     },
   ],

@@ -1,6 +1,12 @@
-node_modules
-npm-debug.log*
-dist
-.DS_Store
 .env
-PARAR BACKEND.txt
+node_modules/
+*.log
+
+stats.json
+media-config.json
+catalog.json
+promos.json
+tv-config.json
+
+media/*
+!media/.gitkeep

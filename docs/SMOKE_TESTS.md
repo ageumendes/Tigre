@@ -1,5 +1,22 @@
 # Smoke Tests
 
+## Portal cativo v2.16
+
+1. Abra `/captive.html` com duas ou mais imagens publicadas.
+2. Arraste horizontalmente e confirme a troca nos dois sentidos com animação.
+3. Toque em **Baixar** e confirme extensão `.jpg` e tipo `image/jpeg`.
+4. Em um celular compatível, toque em **Compartilhar** e confirme que o menu recebe o arquivo JPG.
+5. Clique rapidamente várias vezes em **Conectar ao Wi-Fi** e confirme apenas um `connect_clicked` no dashboard.
+
+## Dashboard v2.16
+
+1. Compare os períodos de 7 e 30 dias.
+2. Confirme dispositivos únicos, sessões, conclusão, liberações, downloads e compartilhamentos.
+3. Verifique as séries de visualizações e conexões no gráfico.
+4. Confirme a distribuição por SSID.
+5. Confirme que rajadas idênticas aparecem apenas uma vez em **Eventos válidos mais recentes**.
+6. Confirme que **Qualidade dos dados** informa quantas duplicidades históricas foram ignoradas.
+
 ## Health / Ready
 ```bash
 curl -i http://localhost:3000/healthz
@@ -38,6 +55,14 @@ Esperado:
 ```bash
 curl -i http://localhost:3000/api/media/manifest?target=todas
 curl -i http://localhost:3000/api/info?target=todas
+```
+
+Confirme que, havendo temporárias válidas e permanentes, `items` contém os dois tipos
+em ordem intercalada. Sem temporárias válidas, devem permanecer apenas os itens com
+`permanent: true`. Repita a verificação no catálogo usado pelo Roku:
+
+```bash
+curl -s "http://localhost:3000/api/catalog?target=todas&client=roku"
 ```
 
 Esperado:

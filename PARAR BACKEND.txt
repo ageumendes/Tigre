@@ -11,7 +11,7 @@ pkill -9 -f "node server.js"
 SUBIR AO GITHUB NO (dev)
 git status
 git add .
-git commit -m "Descrição clara da alteração"
+git commit -m "Atualização de midias 1920x1080.jpg"
 git push origin main
 
 BAIXAR DO GITHUB NO LIGHTSAIL (Servidor)
@@ -25,3 +25,11 @@ pm2 restart tv-media --update-env
 
 PM2 REINICIAR:
 pm2 restart tv-media --update-env
+
+
+LOGS ROKU
+$client = New-Object System.Net.Sockets.TcpClient("192.168.1.8",8085)
+$stream = $client.GetStream()
+$reader = New-Object System.IO.StreamReader($stream)
+while (($line = $reader.ReadLine()) -ne $null) { $line; $line | Out-File -Append .\roku-log.txt }
+

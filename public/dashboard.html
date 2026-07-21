@@ -19,6 +19,13 @@
       <div class="actions">
         <a class="ghost-button" href="index.html">Voltar para painel</a>
         <a class="ghost-button primary" href="captive.html" target="_blank" rel="noopener">Abrir portal cativo</a>
+        <label class="dashboard-period">Período
+          <select id="period-days" aria-label="Período da análise">
+            <option value="7">Últimos 7 dias</option>
+            <option value="30">Últimos 30 dias</option>
+          </select>
+        </label>
+        <button id="refresh-dashboard" class="ghost-button" type="button">Atualizar dados</button>
       </div>
     </header>
 
@@ -27,28 +34,43 @@
         <div class="card-head">
           <div>
             <p class="eyebrow">Visão geral</p>
-            <h2>Resumo</h2>
+            <h2>Indicadores reais</h2>
           </div>
         </div>
         <div class="stats-metrics">
           <div class="metric">
-            <p class="metric-label">Visualizações</p>
+            <p class="metric-label">Dispositivos únicos</p>
+            <p class="metric-value" id="metric-unique-devices">--</p>
+            <p class="metric-help">MACs ou IPs distintos no período</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Sessões</p>
+            <p class="metric-value" id="metric-sessions">--</p>
+            <p class="metric-help">Nova sessão após 30 min sem atividade</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Visualizações iniciadas</p>
             <p class="metric-value" id="metric-video-started">--</p>
           </div>
           <div class="metric">
-            <p class="metric-label">Cliques em “Conectar”</p>
+            <p class="metric-label">Conclusão das mídias</p>
+            <p class="metric-value" id="metric-completion-rate">--</p>
+          </div>
+          <div class="metric">
+            <p class="metric-label">Cliques únicos em conectar</p>
             <p class="metric-value" id="metric-connect-clicked">--</p>
           </div>
           <div class="metric">
-            <p class="metric-label">Autenticações</p>
+            <p class="metric-label">Liberações solicitadas</p>
             <p class="metric-value" id="metric-auth-redirect">--</p>
+            <p class="metric-help" id="metric-connection-rate">--</p>
           </div>
           <div class="metric">
-            <p class="metric-label">Downloads do anúncio</p>
+            <p class="metric-label">Downloads em JPG</p>
             <p class="metric-value" id="metric-download-clicked">--</p>
           </div>
           <div class="metric">
-            <p class="metric-label">Compartilhamentos do anúncio</p>
+            <p class="metric-label">Compartilhamentos</p>
             <p class="metric-value" id="metric-share-clicked">--</p>
           </div>
         </div>
@@ -58,14 +80,31 @@
       <section class="card">
         <div class="card-head">
           <div>
-            <p class="eyebrow">Últimos 7 dias</p>
-            <h2>Eventos por dia</h2>
+            <p class="eyebrow">Tendência diária</p>
+            <h2>Visualizações e conexões</h2>
           </div>
         </div>
         <div class="chart-area">
           <canvas id="chart-canvas" class="chart-canvas"></canvas>
         </div>
+        <div class="chart-legend" aria-label="Legenda do gráfico">
+          <span><i class="legend-view"></i> Visualizações</span>
+          <span><i class="legend-connect"></i> Conexões</span>
+        </div>
         <div id="chart-status" class="status"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <p class="eyebrow">Distribuição</p>
+            <h2>Conexões por rede Wi-Fi</h2>
+          </div>
+        </div>
+        <div id="ssid-breakdown" class="ssid-breakdown">
+          <p class="muted">Carregando...</p>
+        </div>
+        <div id="quality-status" class="data-quality"></div>
       </section>
     </main>
 
@@ -73,14 +112,14 @@
       <div class="card-head">
         <div>
           <p class="eyebrow">Atividade recente</p>
-          <h2>Últimos eventos</h2>
+          <h2>Eventos válidos mais recentes</h2>
         </div>
       </div>
       <div class="table-responsive">
         <table class="stats-table">
           <thead>
             <tr>
-              <th>Tipo</th>
+              <th>Evento</th>
               <th>SSID</th>
               <th>MAC</th>
               <th>Data/Hora</th>

@@ -24,6 +24,8 @@ Crie um `.env` de produção (ou exporte no shell/serviço):
 ```bash
 PORT=3000
 MEDIA_DIR=/var/lib/tv-media/media
+# Opcional; o padrão já será /var/lib/tv-media/media/tv-media.sqlite
+# DB_PATH=/var/lib/tv-media/media/tv-media.sqlite
 ENABLE_HLS=true
 ENABLE_PORTRAIT_VARIANTS=true
 UPLOAD_PASSWORD=troque_esta_senha
@@ -33,6 +35,8 @@ TRUST_PROXY=true
 Notas:
 - `PORT=3000`: Nginx fará proxy para `127.0.0.1:3000`.
 - `TRUST_PROXY=true`: recomendado atrás do Nginx.
+- O SQLite é criado automaticamente dentro de `MEDIA_DIR`; no primeiro início,
+  os JSON existentes são importados e copiados para `json-migration-backup`.
 - HLS já usa segmentos de 4s e ladder 360/720/1080 no servidor.
 
 ## 4. PM2
@@ -94,6 +98,7 @@ Validação rápida:
 
 ```bash
 curl -sS -i http://127.0.0.1:3000/healthz
+curl -sS -i http://127.0.0.1:3000/readyz
 curl -sS -i http://SEU_DOMINIO_OU_IP/healthz
 ```
 
@@ -102,6 +107,10 @@ Esperado: status `200` e JSON com `{"ok": true, ...}`.
 ## 9. Smoke tests
 
 Use `docs/SMOKE_TESTS.md` para validar:
+
+Antes de iniciar em produção, configure `UPLOAD_PASSWORD`, `DEVICE_KEYS`,
+`CORS_ORIGINS` e `MEDIA_TIMEZONE` no `.env`. Nunca envie o `.env` dentro do
+pacote de implantação.
 - MP4 com Range (`206`)
 - HLS (`.m3u8` e `.ts`) com cache `no-cache`
 - headers `ETag` e `Last-Modified`
