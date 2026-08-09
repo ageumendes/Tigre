@@ -272,7 +272,7 @@
     const releaseBtn = document.getElementById("release");
     const downloadBtn = document.getElementById("download");
     const shareBtn = document.getElementById("share");
-    const statsEndpoint = `${API_BASE}/api/stats/event`;
+    const statsEndpoint = `${API_BASE}/api/stats/captive-event`;
     const userAgent = navigator.userAgent || "";
     const STORY_DURATION = 6000;
     const buildUrl = (path) => `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
@@ -317,14 +317,26 @@
 
     const sendEvent = async (type) => {
       try {
-        await fetch(statsEndpoint, {
+        const response = await fetch(statsEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ type, clientMac, clientIp, ssid, userAgent }),
           keepalive: true,
         });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          console.warn(
+            "Evento de telemetria rejeitado",
+            type,
+            response.status,
+            payload?.error || payload?.message || "erro desconhecido"
+          );
+          return false;
+        }
+        return true;
       } catch (error) {
         console.warn("Não foi possível registrar evento", type, error);
+        return false;
       }
     };
 

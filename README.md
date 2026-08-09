@@ -146,6 +146,11 @@ npm run dev         # ou npm start
 
 Nunca distribua o arquivo `.env` em ZIPs ou repositórios. Use somente `.env.example` como modelo.
 
+O endpoint `/api/stats/event` permanece reservado a Roku e dispositivos dedicados e exige
+`x-device-key`. O portal servido por `/captive.html` usa `/api/stats/captive-event`, restrito
+à mesma origem, com rate limit, validação de eventos e deduplicação. Não coloque uma chave
+secreta dentro do JavaScript público.
+
 Você pode copiar `.env.example` e preencher suas chaves antes de subir o ambiente local ou configurar as variáveis direto no servidor de deploy.
 
 ## Formatos aceitos

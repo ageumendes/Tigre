@@ -1,5 +1,15 @@
 # Lista de desenvolvimento — Servidor TV Tigre
 
+## v2.16.2 — telemetria do portal cativo em produção
+
+- [x] Separar a telemetria pública do portal cativo da rota protegida dos dispositivos.
+- [x] Manter `x-device-key` obrigatório para Roku e integrações dedicadas.
+- [x] Aceitar eventos do portal apenas quando `Origin` e `Host` representam a mesma origem.
+- [x] Limitar telemetria a 120 eventos por minuto por IP.
+- [x] Reutilizar validação, deduplicação e persistência SQLite nas duas rotas.
+- [x] Exibir rejeições de telemetria no console do navegador para facilitar diagnóstico.
+- [x] Renovar o cache offline do player.
+
 ## v2.16.1 — programação mista permanente e temporária
 
 - [x] Manter mídias permanentes na programação mesmo quando existem temporárias válidas.

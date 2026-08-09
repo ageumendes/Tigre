@@ -2208,6 +2208,19 @@ const extrasLimiter = rateLimit({
   message: { ok: false, error: "RATE_LIMITED", message: "Muitas requisições. Tente mais tarde." },
 });
 
+const telemetryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+  message: {
+    ok: false,
+    error: "TELEMETRY_RATE_LIMITED",
+    message: "Muitos eventos enviados. Tente novamente em instantes.",
+  },
+});
+
 const rawCorsOrigins = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || "";
 const allowedCorsOrigins = rawCorsOrigins
   .split(/[;,]/)
@@ -2596,6 +2609,41 @@ const requireDeviceKey = (req, res, next) => {
   }
   if (!DEVICE_KEYS.includes(provided)) {
     return sendJsonError(res, 403, "DEVICE_KEY_INVALID", "Chave do dispositivo inválida.");
+  }
+  return next();
+};
+
+const requireCaptiveTelemetryOrigin = (req, res, next) => {
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin.trim() : "";
+  const host = typeof req.headers.host === "string" ? req.headers.host.trim() : "";
+  if (!origin || !host) {
+    return sendJsonError(
+      res,
+      403,
+      "CAPTIVE_ORIGIN_MISSING",
+      "Origem do portal cativo ausente."
+    );
+  }
+
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch (_error) {
+    return sendJsonError(
+      res,
+      403,
+      "CAPTIVE_ORIGIN_INVALID",
+      "Origem do portal cativo inválida."
+    );
+  }
+
+  if (parsedOrigin.host !== host || !["http:", "https:"].includes(parsedOrigin.protocol)) {
+    return sendJsonError(
+      res,
+      403,
+      "CAPTIVE_ORIGIN_FORBIDDEN",
+      "Origem não autorizada para telemetria do portal cativo."
+    );
   }
   return next();
 };
@@ -5005,7 +5053,7 @@ const deduplicateStatsEvents = (events = []) => {
   return accepted;
 };
 
-app.post("/api/stats/event", requireDeviceKey, (req, res) => {
+const handleStatsEvent = (req, res) => {
   const { type, clientMac, clientIp, ssid, userAgent } = req.body || {};
   if (!SUPPORTED_EVENT_TYPES.has(type)) {
     return res.status(400).json({ ok: false, message: "Tipo de evento inválido." });
@@ -5041,7 +5089,19 @@ app.post("/api/stats/event", requireDeviceKey, (req, res) => {
     console.error("Erro ao registrar evento:", error.message);
     return res.status(500).json({ ok: false, message: "Falha ao registrar evento." });
   }
-});
+};
+
+// Integrações de dispositivos (Roku, players dedicados): exigem chave secreta.
+app.post("/api/stats/event", telemetryLimiter, requireDeviceKey, handleStatsEvent);
+
+// Portal cativo no navegador: não possui segredo seguro; aceita somente mesma origem
+// e mantém rate limit, validação de tipos/campos e deduplicação no handler comum.
+app.post(
+  "/api/stats/captive-event",
+  telemetryLimiter,
+  requireCaptiveTelemetryOrigin,
+  handleStatsEvent
+);
 
 app.get("/api/stats/summary", requireUploadAuth, (req, res) => {
   const requestedDays = parseInt(req.query.days, 10);

@@ -85,7 +85,20 @@ curl -i -X POST http://localhost:3000/api/upload \
 ```bash
 curl -i -X POST http://localhost:3000/api/stats/event \
   -H "Content-Type: application/json" \
+  -H "x-device-key: $DEVICE_KEY" \
   -d '{"type":"video_started"}'
+
+curl -i -X POST http://localhost:3000/api/stats/captive-event \
+  -H "Origin: http://localhost:3000" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"video_started","clientMac":"SMOKE-TEST","ssid":"Teste"}'
+
+# Deve retornar 403 por origem diferente.
+curl -i -X POST http://localhost:3000/api/stats/captive-event \
+  -H "Origin: https://origem-invalida.example" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"video_started"}'
+
 curl -i http://localhost:3000/api/catalog?target=acougue
 ```
 
