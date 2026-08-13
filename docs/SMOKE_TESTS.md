@@ -115,3 +115,24 @@ No player, validar:
 ```bash
 npm run doctor
 ```
+# Validade no feed Roku legado (v2.16.3)
+
+Com pelo menos uma mídia permanente e uma temporária vencida cadastradas, a temporária não pode aparecer em nenhuma das listas devolvidas:
+
+```bash
+curl -sS \
+  -H 'User-Agent: Roku/DVP-12.5' \
+  'http://localhost:3000/media-config.json?client=roku' \
+  | grep -F 'ID_OU_NOME_DA_MIDIA_VENCIDA' \
+  && echo 'FALHA: mídia vencida encontrada' \
+  || echo 'OK: mídia vencida removida'
+```
+
+Confira também que permanentes continuam presentes e que a rota desabilita cache:
+
+```bash
+curl -sSI \
+  -H 'User-Agent: Roku/DVP-12.5' \
+  'http://localhost:3000/media-config.json?client=roku' \
+  | grep -iE 'HTTP/|cache-control|pragma|expires'
+```

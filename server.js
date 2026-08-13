@@ -479,6 +479,23 @@ const selectEligibleMedia = (items = [], today = getLocalDateKey()) => {
   const permanent = visible.filter((item) => item.permanent === true);
   return interleaveMediaGroups(temporary, permanent);
 };
+const filterMediaConfigForDelivery = (payload, today = getLocalDateKey()) => {
+  if (!payload || typeof payload !== "object") return payload;
+  const filtered = JSON.parse(JSON.stringify(payload));
+
+  if (Array.isArray(filtered.items)) {
+    filtered.items = selectEligibleMedia(filtered.items, today);
+  }
+
+  if (filtered.targets && typeof filtered.targets === "object") {
+    Object.values(filtered.targets).forEach((entry) => {
+      if (!entry || typeof entry !== "object" || !Array.isArray(entry.items)) return;
+      entry.items = selectEligibleMedia(entry.items, today);
+    });
+  }
+
+  return filtered;
+};
 const targetSuffix = (value) => {
   const normalized = normalizeTarget(value);
   return normalized === "todas" ? "" : `-${slugifyId(normalized)}`;
@@ -2389,12 +2406,15 @@ app.get("/config.js", (_req, res) => {
 });
 
 app.get("/media-config.json", async (req, res) => {
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const parsed = readMediaConfig();
     if (!isRokuRequest(req)) return res.json(parsed);
-    const converted = await convertMediaConfigForRoku(parsed);
+    const eligible = filterMediaConfigForDelivery(parsed);
+    const converted = await convertMediaConfigForRoku(eligible);
     return res.json(converted);
   } catch (error) {
     console.warn("Falha ao entregar programação:", error.message);

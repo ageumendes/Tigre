@@ -1,5 +1,13 @@
 # Lista de desenvolvimento — Servidor TV Tigre
 
+# v2.16.3 — validade das mídias no feed legado da Roku
+
+- O endpoint `/media-config.json?client=roku` agora remove mídias invisíveis e temporárias vencidas antes de converter as imagens para JPG.
+- O filtro é aplicado tanto à lista principal `items` quanto às listas `targets.*.items` consumidas por TVs específicas.
+- Mídias temporárias ainda válidas continuam mescladas com as permanentes; sem temporárias válidas, permanecem somente as permanentes.
+- A resposta usa cabeçalhos anti-cache para impedir que a Roku reutilize uma programação já vencida.
+- O manifesto moderno `/api/media/manifest` mantém o comportamento existente.
+
 ## v2.16.2 — telemetria do portal cativo em produção
 
 - [x] Separar a telemetria pública do portal cativo da rota protegida dos dispositivos.
