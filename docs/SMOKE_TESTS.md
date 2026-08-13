@@ -136,3 +136,29 @@ curl -sSI \
   'http://localhost:3000/media-config.json?client=roku' \
   | grep -iE 'HTTP/|cache-control|pragma|expires'
 ```
+# Validade unificada nas páginas públicas (v2.16.4)
+
+As rotas de manifesto, catálogo e configuração pública devem omitir a mídia vencida e preservar permanentes/temporárias válidas:
+
+```bash
+for url in \
+  'http://localhost:3000/api/media/manifest?target=todas' \
+  'http://localhost:3000/api/catalog?target=todas' \
+  'http://localhost:3000/media-config.json'
+do
+  echo "===== $url ====="
+  curl -sS "$url" | grep -F 'ID_OU_NOME_DA_MIDIA_VENCIDA' \
+    && echo 'FALHA: mídia vencida encontrada' \
+    || echo 'OK: mídia vencida removida'
+done
+```
+
+Confirme que o catálogo preserva os metadados usados pelo filtro:
+
+```bash
+curl -sS 'http://localhost:3000/api/catalog?target=todas' | python3 -c '
+import json, sys
+for item in json.load(sys.stdin).get("items", []):
+    print(item.get("id"), item.get("visivel"), item.get("permanent"), item.get("endDate"))
+'
+```

@@ -2011,8 +2011,10 @@ const processImageUpload = async (filePath, fileName) => {
 
 const sendLatestMedia = (req, res) => {
   const config = readMediaConfig();
-  if (config?.items?.length) {
-    const primary = config.items[0];
+  const configuredItems = Array.isArray(config?.items) ? config.items : [];
+  if (configuredItems.length) {
+    const primary = selectEligibleMedia(configuredItems)[0];
+    if (!primary) return res.sendStatus(404);
     const filePath = resolveMediaPath(primary.path);
     if (!filePath || !fs.existsSync(filePath)) return res.sendStatus(404);
     return sendFileWithRange(req, res, filePath, primary.mime, {
@@ -2059,6 +2061,9 @@ const buildCatalogItem = (item) => {
     posterUrlPortrait: item.posterUrlPortrait || "",
     variantsLandscape: item.variantsLandscape || [],
     variantsPortrait: item.variantsPortrait || [],
+    visivel: item.visivel !== false,
+    permanent: item.permanent === true,
+    endDate: item.permanent === true ? "" : normalizeEndDate(item.endDate) || "",
     duration: item.duration || null,
     width: item.width || null,
     height: item.height || null,
@@ -2412,8 +2417,8 @@ app.get("/media-config.json", async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   try {
     const parsed = readMediaConfig();
-    if (!isRokuRequest(req)) return res.json(parsed);
     const eligible = filterMediaConfigForDelivery(parsed);
+    if (!isRokuRequest(req)) return res.json(eligible);
     const converted = await convertMediaConfigForRoku(eligible);
     return res.json(converted);
   } catch (error) {
@@ -2477,7 +2482,7 @@ const findLatestFile = () => {
     const config = readMediaConfig();
     const items = Array.isArray(config?.items) ? config.items : [];
     if (items.length) {
-      const sorted = [...items].sort(
+      const sorted = selectEligibleMedia(items).sort(
         (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
       );
       for (const item of sorted) {
@@ -2490,6 +2495,7 @@ const findLatestFile = () => {
           mime: item.mime || MIME_BY_EXT[ext] || "application/octet-stream",
         };
       }
+      return null;
     }
   } catch (error) {
     console.warn("Falha ao buscar mídia pelo media-config.json:", error.message);
@@ -4487,9 +4493,9 @@ app.get("/api/ping.bin", (_req, res) => {
 app.get("/api/catalog", (req, res) => {
   const rokuRequest = isRokuRequest(req);
   const target = normalizeTarget(req.query?.target || "todas");
-  const catalog = readCatalog() || writeCatalog();
-  const baseItems = catalog?.targets?.[target]?.items || [];
-  const globalItems = catalog?.targets?.todas?.items || [];
+  const config = readMediaConfig();
+  const baseItems = config?.targets?.[target]?.items || [];
+  const globalItems = config?.targets?.todas?.items || [];
   const combined = target === "todas" ? baseItems : [...baseItems, ...globalItems];
   const unique = [];
   const seen = new Set();
@@ -4497,18 +4503,24 @@ app.get("/api/catalog", (req, res) => {
     const id = item?.id || buildItemId(item);
     if (seen.has(id)) return;
     seen.add(id);
-    unique.push(rokuRequest ? mapCatalogItemForRoku({ ...item, id }) : { ...item, id });
+    const catalogItem = buildCatalogItem({ ...item, id });
+    if (!catalogItem) return;
+    unique.push(rokuRequest ? mapCatalogItemForRoku(catalogItem) : catalogItem);
   });
-  const etag = `W/"catalog-${target}-${catalog?.generatedAt || "0"}-${unique.length}"`;
+  const generatedAt = config?.updatedAt || 0;
+  const serialized = JSON.stringify(unique);
+  const etag = buildStrongEtag(`catalog:${target}`, serialized);
   res.setHeader("ETag", etag);
-  res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   if (req.headers["if-none-match"]?.includes(etag)) {
     return res.status(304).end();
   }
   return res.json({
     ok: true,
     target,
-    generatedAt: catalog?.generatedAt,
+    generatedAt,
     items: unique,
   });
 });

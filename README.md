@@ -47,7 +47,10 @@ JSON existentes e guarda uma cópia em `media/json-migration-backup`. O banco pa
 é `media/tv-media.sqlite`; use `DB_PATH` somente se quiser mantê-lo em outro volume.
 
 O endpoint público `/media-config.json` continua disponível para TVs e players, mas
-agora é produzido a partir do banco. Não edite os JSON antigos após a migração.
+agora é produzido a partir do banco e entrega somente mídias elegíveis. O mesmo filtro
+é aplicado a `/api/media/manifest`, `/api/info`, `/api/catalog` e `/media/latest`,
+garantindo validade consistente nos players web, portal cativo e Roku. Não edite os
+JSON antigos após a migração.
 
 Servidor de TV corporativa/digital signage para publicar vídeos e imagens por TV ou grupo, com HLS, variantes para Roku, carrossel, monitoramento e atualização automática dos players.
 

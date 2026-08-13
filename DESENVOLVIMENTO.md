@@ -1,5 +1,15 @@
 # Lista de desenvolvimento — Servidor TV Tigre
 
+# v2.16.4 — validade unificada em todas as páginas públicas
+
+- A programação pública passou a usar uma única regra de elegibilidade: mídia visível, permanente ou temporária ainda dentro da validade.
+- O catálogo do portal cativo agora é construído a partir do `media-config.json`, fonte oficial da programação, sem depender de metadados antigos do `catalog.json`.
+- Itens do catálogo preservam `visivel`, `permanent` e `endDate`.
+- `/media-config.json`, com ou sem cliente Roku, remove mídias vencidas e invisíveis antes da entrega.
+- `/media/latest` também respeita validade e retorna 404 quando existe programação cadastrada, mas nenhuma mídia está elegível.
+- Catálogo e configuração pública usam cabeçalhos anti-cache para refletir vencimentos após a meia-noite.
+- Páginas administrativas continuam mostrando mídias vencidas para permitir manutenção e reativação.
+
 # v2.16.3 — validade das mídias no feed legado da Roku
 
 - O endpoint `/media-config.json?client=roku` agora remove mídias invisíveis e temporárias vencidas antes de converter as imagens para JPG.

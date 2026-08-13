@@ -1,4 +1,4 @@
-const VERSION = "2.16.3";
+const VERSION = "2.16.4";
 const SHELL_CACHE = `tigre-shell-${VERSION}`;
 const MEDIA_CACHE = `tigre-media-${VERSION}`;
 const CACHE_PREFIX = "tigre-";
